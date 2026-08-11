@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sunday Setup</title>
+<style>
+  :root{
+    --navy:#0B1F4B;
+    --navy-soft:#1E3A73;
+    --periwinkle:#7B86C9;
+    --bg:#FFFFFF;
+    --panel:#F5F6FA;
+    --line:#E3E6F0;
+    --green:#1E7A48;
+    --amber:#B8842A;
+    --text:#1A1F2E;
+    --muted:#6B7280;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    padding-bottom:80px;
+  }
+  header{
+    background:var(--navy);
+    color:#fff;
+    padding:28px 20px 22px;
+    position:relative;
+    overflow:hidden;
+  }
+  header::after{
+    content:"";
+    position:absolute;
+    right:-40px; top:-40px;
+    width:160px; height:160px;
+    border-radius:50%;
+    background:rgba(255,255,255,0.06);
+  }
+  header h1{
+    margin:0 0 4px;
+    font-size:26px;
+    font-weight:700;
+    letter-spacing:0.2px;
+  }
+  header p{
+    margin:0;
+    font-size:14px;
+    color:rgba(255,255,255,0.7);
+  }
+
+  .weekstrip{
+    display:flex;
+    gap:6px;
+    padding:16px 20px 0;
+    max-width:720px;
+    margin:0 auto;
+  }
+  .day{
+    flex:1;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:8px 4px;
+    text-align:center;
+    min-height:56px;
+  }
+  .day .label{
+    font-size:10px;
+    font-weight:700;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.5px;
+  }
+  .day .fill{
+    font-size:11px;
+    color:var(--navy);
+    font-weight:600;
+    margin-top:4px;
+    line-height:1.2;
+    word-break:break-word;
+  }
+  .day.empty .fill{ color:#C7CBDA; font-weight:400; }
+
+  main{
+    max-width:720px;
+    margin:0 auto;
+    padding:20px;
+  }
+  section{
+    margin-bottom:28px;
+  }
+  .sec-head{
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    margin-bottom:10px;
+  }
+  .sec-num{
+    font-size:12px;
+    font-weight:700;
+    color:var(--periwinkle);
+    letter-spacing:1px;
+  }
+  h2{
+    font-size:17px;
+    margin:0;
+    color:var(--navy);
+    font-weight:700;
+  }
+  .sub{
+    font-size:13px;
+    color:var(--muted);
+    margin:2px 0 14px;
+  }
+
+  .chip-grid{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .chip{
+    border:1.5px solid var(--line);
+    background:#fff;
+    border-radius:20px;
+    padding:9px 15px;
+    font-size:14px;
+    cursor:pointer;
+    color:var(--text);
+    transition:all .15s ease;
+    user-select:none;
+  }
+  .chip:hover{ border-color:var(--periwinkle); }
+  .chip.active{
+    background:var(--navy);
+    border-color:var(--navy);
+    color:#fff;
+    font-weight:600;
+  }
+  .chip.stock{
+    background:#EAF3ED;
+    border-color:#B7DBC3;
+  }
+  .chip.stock.active{
+    background:var(--green);
+    border-color:var(--green);
+  }
+
+  .protein-block{
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:16px;
+    margin-bottom:12px;
+    background:var(--panel);
+  }
+  .protein-block .pname{
+    font-weight:700;
+    color:var(--navy);
+    font-size:15px;
+    margin-bottom:10px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .tag{
+    font-size:10px;
+    font-weight:700;
+    padding:2px 8px;
+    border-radius:10px;
+    letter-spacing:0.3px;
+  }
+  .tag.freezer{ background:#DCE4F7; color:var(--navy-soft); }
+  .tag.fresh{ background:#FBEBD8; color:var(--amber); }
+  .shuffle-btn{
+    margin-left:auto;
+    font-size:11px;
+    font-weight:600;
+    color:var(--periwinkle);
+    cursor:pointer;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:4px 10px;
+    white-space:nowrap;
+  }
+  .shuffle-btn:hover{ border-color:var(--periwinkle); }
+  .claude-btn{
+    background:linear-gradient(135deg,#F5F0FF,#EDE7FA);
+    border-color:#D9CCF5;
+    color:#6B4FC4;
+  }
+  .ask-panel{
+    margin:10px 0;
+  }
+  .chat-log{
+    max-height:220px;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    margin-bottom:8px;
+    padding-right:2px;
+  }
+  .chat-log:empty{ display:none; }
+  .msg{
+    max-width:85%;
+    padding:8px 12px;
+    border-radius:12px;
+    font-size:13px;
+    line-height:1.45;
+  }
+  .msg.user{
+    align-self:flex-end;
+    background:var(--navy);
+    color:#fff;
+    border-bottom-right-radius:3px;
+  }
+  .msg.assistant{
+    align-self:flex-start;
+    background:#F5F0FF;
+    color:var(--text);
+    border-bottom-left-radius:3px;
+    white-space:pre-wrap;
+  }
+  .msg.assistant .add-idea{
+    display:inline-block;
+    margin:4px 4px 0 0;
+    font-size:11px;
+    font-weight:700;
+    color:#6B4FC4;
+    background:#fff;
+    border:1px solid #D9CCF5;
+    border-radius:10px;
+    padding:3px 9px;
+    cursor:pointer;
+  }
+  .msg.thinking{ color:var(--muted); font-style:italic; }
+  .chat-input-row{
+    display:flex;
+    gap:8px;
+  }
+  .taste-input-row{
+    display:flex;
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .taste-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .taste-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    background:#F5F0FF;
+    border:1px solid #E4DBF7;
+    border-radius:10px;
+    padding:9px 12px;
+    font-size:13px;
+    color:var(--text);
+  }
+  .taste-item .rm{
+    cursor:pointer;
+    color:#9B8BC7;
+    font-weight:700;
+    font-size:14px;
+    flex-shrink:0;
+  }
+  .taste-empty{
+    font-size:13px;
+    color:var(--muted);
+    font-style:italic;
+  }
+  .ask-input{
+    flex:1;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    padding:9px 12px;
+    font-size:13px;
+    font-family:'Segoe UI', system-ui, sans-serif;
+  }
+  .ask-go{
+    background:#6B4FC4;
+    color:#fff;
+    border:none;
+    border-radius:10px;
+    padding:9px 16px;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .ask-go:disabled{ background:#C7BEDD; cursor:default; }
+  .ask-status{
+    font-size:12px;
+    color:var(--muted);
+    min-height:16px;
+    margin-bottom:6px;
+  }
+  .ask-status.error{ color:#B4232C; }
+
+  .combo-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  .grocery-out{
+    width:100%;
+    min-height:180px;
+    border:1.5px solid var(--line);
+    border-radius:12px;
+    padding:14px;
+    font-family:'Segoe UI', system-ui, sans-serif;
+    font-size:14px;
+    line-height:1.7;
+    color:var(--text);
+    resize:vertical;
+    background:#fff;
+  }
+  .copy-btn{
+    margin-top:10px;
+    background:var(--navy);
+    color:#fff;
+    border:none;
+    border-radius:10px;
+    padding:12px 20px;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    width:100%;
+  }
+  .copy-btn:active{ background:var(--navy-soft); }
+  .copy-btn.copied{ background:var(--green); }
+
+  .note{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:8px;
+    line-height:1.5;
+  }
+
+  .divider{
+    height:1px;
+    background:var(--line);
+    margin:28px 0;
+  }
+
+  footer{
+    text-align:center;
+    font-size:12px;
+    color:var(--muted);
+    padding:10px 20px 30px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Sunday Setup</h1>
+  <p>Decide once. Execute all week.</p>
+</header>
+
+<div class="weekstrip" id="weekstrip"></div>
+
+<main>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">00</span><h2>Taste notes</h2></div>
+    <div class="sub">Add anything, anytime — a recipe you liked, a flavor you're into, a cuisine you keep gravitating to. This feeds every chat below.</div>
+    <div class="taste-input-row">
+      <input type="text" class="ask-input" id="taste-input" placeholder="e.g. 'liked that Cajun shrimp pasta I saw' or 'always into garlic + heat'">
+      <button class="ask-go" id="taste-go">Add</button>
+    </div>
+    <div class="taste-list" id="tasteList"></div>
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Pick this week's proteins</h2></div>
+    <div class="sub">2–3 is plenty. Mix fresh-cook with what's already sitting in the freezer.</div>
+    <div class="chip-grid" id="proteinChips"></div>
+  </section>
+
+  <section id="comboSection" style="display:none;">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Assign the swap directions</h2></div>
+    <div class="sub">Same protein, different plate each time — tap what it becomes.</div>
+    <div id="comboBlocks"></div>
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Breakfast defaults</h2></div>
+    <div class="sub">Savory, quick, zero decision required at 6am.</div>
+    <div class="chip-grid" id="breakfastChips"></div>
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>What's already stocked</h2></div>
+    <div class="sub">Tap what's already in the fridge/freezer/pantry — skips it on the list.</div>
+    <div class="chip-grid" id="stockChips"></div>
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Tuesday's cart</h2></div>
+    <div class="sub">Copy this into the Instacart order. No deciding, just adding.</div>
+    <textarea class="grocery-out" id="groceryOut" readonly></textarea>
+    <button class="copy-btn" id="copyBtn" onclick="copyList()">Copy list</button>
+    <div class="note">Order still opens Tuesday evening — this just makes Tuesday a copy-paste, not a decision.</div>
+  </section>
+
+</main>
+
+<footer>Fill this out Sunday. Ignore it the rest of the week. Skipping a week is fine.</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL = "https://fdbkdsracxomwyytfgob.supabase.co";
+const SUPABASE_KEY = "sb_publishable_w5izyYtgIXD-pQvjlkn4jg_DtGJq_7j";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ---------- DATA ----------
+const PROTEINS = [
+  { id:'beef', name:'Ground Beef', freezer:false, combos:['Tacos','Burrito Bowl','Meatballs','Spaghetti','Beef & Rice Skillet','Stuffed Peppers','Sloppy Joes','Smash Bowl (naan + beef + sauce)','Nachos','Beef Chili'] },
+  { id:'thighs', name:'Chicken Thighs', freezer:false, combos:['Stir Fry','Grain Bowl','Wraps','Fajitas','BBQ Thighs + Rice','Chicken Quesadilla','Naan Chicken Melt','Chicken Caesar Wrap','Sheet-Pan Thighs + Veg','Buffalo Chicken Bowl'] },
+  { id:'burgers', name:'Burgers', freezer:false, combos:['Classic Burger','Lettuce Wrap','Burger Bowl','Naan Burger Melt','Patty Melt','Burger Tacos'] },
+  { id:'scampi', name:'Frozen Shrimp Scampi', freezer:true, combos:['Over Rice + Aioli','With Penne','Shrimp Naan Wrap','Shrimp Tacos','Shrimp + Rice Bowl w/ Sriracha Mayo'] },
+  { id:'brisket', name:'Premade Brisket', freezer:false, combos:['On Bread','With Rice','Brisket Tacos','Brisket Naan Melt','Brisket Quesadilla','Brisket Mac Mashup (w/ Annie\'s cup)'] },
+  { id:'rollups', name:'Buffalo Chicken Rollups', freezer:true, combos:['As-is w/ Ranch','Chopped Over Rice','In a Wrap w/ Ranch'] },
+];
+
+const BREAKFAST = [
+  'Naan Breakfast Sandwich','Egg Muffins (prepped)','Sausage + Egg Wrap','Savory Oats w/ Egg','Quick Bacon & Egg Sandwich'
+];
+
+const STOCK_ITEMS = [
+  'Rice Cups','PB&J fixings','Greek Yogurt','Kefir','Mini Naan','Annie\'s Mac Cups','Elevation Protein Bars',
+  'Tortillas','Aioli','Salsa','Shredded Cheese','Ranch','Hot Sauce','Bread','Eggs'
+];
+
+const DAYS = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+
+// ---------- STATE ----------
+let selectedProteins = new Set();
+let comboAssignments = {}; // proteinId -> Set of combos
+let selectedBreakfasts = new Set();
+let stockedItems = new Set();
+let openAskPanels = new Set();
+let chatHistories = {}; // proteinId -> array of {role, content}
+let apiKey = null;
+try { apiKey = localStorage.getItem('sw_api_key'); } catch(e){}
+let tasteNotes = []; // array of {id, note}
+
+async function loadTasteNotes(){
+  const { data, error } = await sb.from('food_taste_notes').select('id, note').eq('archived', false).order('created_at', { ascending: true });
+  if(!error && data) tasteNotes = data;
+  renderTasteList();
+}
+
+async function saveTasteNoteRemote(note){
+  const { data, error } = await sb.from('food_taste_notes').insert({ note }).select('id, note').single();
+  if(!error && data) tasteNotes.push(data);
+  renderTasteList();
+}
+
+async function archiveTasteNoteRemote(id){
+  await sb.from('food_taste_notes').update({ archived: true }).eq('id', id);
+  tasteNotes = tasteNotes.filter(n => n.id !== id);
+  renderTasteList();
+}
+
+function renderTasteList(){
+  const el = document.getElementById('tasteList');
+  el.innerHTML = '';
+  if(tasteNotes.length === 0){
+    el.innerHTML = '<div class="taste-empty">Nothing added yet — this list builds over time.</div>';
+    return;
+  }
+  tasteNotes.forEach((n)=>{
+    const div = document.createElement('div');
+    div.className = 'taste-item';
+    div.innerHTML = `<span>${n.note}</span><span class="rm" data-id="${n.id}">✕</span>`;
+    el.appendChild(div);
+  });
+  el.querySelectorAll('.rm').forEach(btn=>{
+    btn.onclick = ()=> archiveTasteNoteRemote(parseInt(btn.dataset.id));
+  });
+}
+
+function addTasteNote(){
+  const input = document.getElementById('taste-input');
+  const val = input.value.trim();
+  if(!val) return;
+  input.value = '';
+  saveTasteNoteRemote(val);
+}
+
+function toggleAskPanel(pid){
+  if(openAskPanels.has(pid)) openAskPanels.delete(pid);
+  else {
+    openAskPanels.add(pid);
+    if(!chatHistories[pid]) chatHistories[pid] = [];
+  }
+  renderAll();
+  const input = document.getElementById('ask-input-' + pid);
+  if(input) input.focus();
+}
+
+function renderChatLog(pid){
+  const log = document.getElementById('chat-log-' + pid);
+  if(!log) return;
+  const history = chatHistories[pid] || [];
+  log.innerHTML = '';
+  history.forEach(msg=>{
+    const div = document.createElement('div');
+    div.className = 'msg ' + msg.role;
+    if(msg.role === 'assistant' && msg.ideas && msg.ideas.length){
+      div.innerHTML = msg.text.replace(/\n/g,'<br>') + '<br>' +
+        msg.ideas.map(idea => `<span class="add-idea" data-pid="${pid}" data-idea="${idea.replace(/"/g,'&quot;')}">+ ${idea}</span>`).join('');
+    } else {
+      div.textContent = msg.text;
+    }
+    log.appendChild(div);
+  });
+  log.scrollTop = log.scrollHeight;
+  log.querySelectorAll('.add-idea').forEach(el=>{
+    el.onclick = ()=>{
+      const pid2 = el.dataset.pid;
+      const idea = el.dataset.idea;
+      const p = PROTEINS.find(x=>x.id===pid2);
+      if(p && !p.combos.includes(idea)) p.combos.push(idea);
+      if(!comboAssignments[pid2]) comboAssignments[pid2] = new Set();
+      comboAssignments[pid2].add(idea);
+      renderAll();
+    };
+  });
+}
+
+async function sendChat(pid){
+  const p = PROTEINS.find(x=>x.id===pid);
+  const input = document.getElementById('ask-input-' + pid);
+  const text = input ? input.value.trim() : '';
+  if(!text) return;
+  if(!chatHistories[pid]) chatHistories[pid] = [];
+
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) return;
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+
+  chatHistories[pid].push({ role:'user', text });
+  input.value = '';
+  chatHistories[pid].push({ role:'assistant thinking', text:'...' });
+  renderChatLog(pid);
+
+  const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time (weight these heavily — this is their actual signal, not the existing combo list): ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
+  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${tasteContext} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
+
+  const apiMessages = chatHistories[pid]
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({ role: m.role, content: m.text }));
+  apiMessages.push({ role: 'user', content: text });
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 500,
+        system: sysContext,
+        messages: apiMessages
+      })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'API error');
+    const textBlock = (data.content || []).find(c=>c.type==='text');
+    let raw = textBlock ? textBlock.text : '';
+
+    let ideas = [];
+    let displayText = raw;
+    const ideaMatch = raw.match(/IDEAS:\s*(\[[\s\S]*\])/);
+    if(ideaMatch){
+      try { ideas = JSON.parse(ideaMatch[1]); } catch(e){ ideas = []; }
+      displayText = raw.slice(0, ideaMatch.index).trim();
+    }
+
+    chatHistories[pid].pop(); // remove thinking placeholder
+    chatHistories[pid].push({ role:'assistant', text: displayText || raw, ideas });
+    renderChatLog(pid);
+  } catch(err){
+    chatHistories[pid].pop();
+    chatHistories[pid].push({ role:'assistant', text: "Couldn't reach Claude — check your API key and try again." });
+    renderChatLog(pid);
+  }
+}
+
+// ---------- RENDER: week strip ----------
+function renderWeekStrip(){
+  const el = document.getElementById('weekstrip');
+  el.innerHTML = '';
+  // build a flat list of planned items across selected proteins' combos + breakfasts
+  let plan = [];
+  selectedProteins.forEach(pid=>{
+    const set = comboAssignments[pid];
+    if(set) set.forEach(c=>plan.push(c));
+  });
+  DAYS.forEach((d,i)=>{
+    const div = document.createElement('div');
+    const item = plan[i-1]; // Sunday itself is planning day, Mon onward gets filled
+    if(i===0){
+      div.className='day';
+      div.innerHTML = `<div class="label">${d}</div><div class="fill">Plan day</div>`;
+    } else if(item){
+      div.className='day';
+      div.innerHTML = `<div class="label">${d}</div><div class="fill">${item}</div>`;
+    } else {
+      div.className='day empty';
+      div.innerHTML = `<div class="label">${d}</div><div class="fill">—</div>`;
+    }
+    el.appendChild(div);
+  });
+}
+
+// ---------- RENDER: protein chips ----------
+function renderProteinChips(){
+  const el = document.getElementById('proteinChips');
+  el.innerHTML = '';
+  PROTEINS.forEach(p=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (selectedProteins.has(p.id) ? ' active' : '');
+    chip.textContent = p.name + (p.freezer ? ' ❄' : '');
+    chip.onclick = ()=>{
+      if(selectedProteins.has(p.id)){
+        selectedProteins.delete(p.id);
+        delete comboAssignments[p.id];
+      } else {
+        selectedProteins.add(p.id);
+        comboAssignments[p.id] = new Set();
+      }
+      renderAll();
+    };
+    el.appendChild(chip);
+  });
+}
+
+// ---------- RENDER: combo blocks ----------
+function renderCombos(){
+  const section = document.getElementById('comboSection');
+  const el = document.getElementById('comboBlocks');
+  el.innerHTML = '';
+  if(selectedProteins.size === 0){
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  PROTEINS.filter(p=>selectedProteins.has(p.id)).forEach(p=>{
+    const block = document.createElement('div');
+    block.className = 'protein-block';
+    const tagHtml = p.freezer ? '<span class="tag freezer">FREEZER</span>' : '<span class="tag fresh">FRESH-COOK</span>';
+    const nameRow = document.createElement('div');
+    nameRow.className = 'pname';
+    nameRow.innerHTML = `${p.name} ${tagHtml}`;
+    const shuffleBtn = document.createElement('span');
+    shuffleBtn.className = 'shuffle-btn';
+    shuffleBtn.textContent = '🎲 Surprise me';
+    shuffleBtn.onclick = ()=>{
+      const pool = [...p.combos];
+      const picks = new Set();
+      while(picks.size < Math.min(2, pool.length)){
+        picks.add(pool[Math.floor(Math.random()*pool.length)]);
+      }
+      comboAssignments[p.id] = picks;
+      renderAll();
+    };
+    nameRow.appendChild(shuffleBtn);
+    const claudeBtn = document.createElement('span');
+    claudeBtn.className = 'shuffle-btn claude-btn';
+    claudeBtn.textContent = '✨ Ask Claude';
+    claudeBtn.onclick = ()=> toggleAskPanel(p.id);
+    nameRow.appendChild(claudeBtn);
+    block.appendChild(nameRow);
+
+    const askPanel = document.createElement('div');
+    askPanel.className = 'ask-panel';
+    askPanel.id = 'ask-' + p.id;
+    askPanel.style.display = openAskPanels.has(p.id) ? 'block' : 'none';
+
+    const chatLog = document.createElement('div');
+    chatLog.className = 'chat-log';
+    chatLog.id = 'chat-log-' + p.id;
+    askPanel.appendChild(chatLog);
+
+    const inputRow = document.createElement('div');
+    inputRow.className = 'chat-input-row';
+    inputRow.innerHTML = `
+      <input type="text" class="ask-input" id="ask-input-${p.id}" placeholder="Ask for ideas, riff on one, say 'more like that 2nd one'...">
+      <button class="ask-go" id="ask-go-${p.id}">Send</button>
+    `;
+    askPanel.appendChild(inputRow);
+
+    block.appendChild(askPanel);
+
+    const row = document.createElement('div');
+    row.className = 'combo-row';
+    p.combos.forEach(c=>{
+      const active = comboAssignments[p.id] && comboAssignments[p.id].has(c);
+      const chip = document.createElement('div');
+      chip.className = 'chip' + (active ? ' active' : '');
+      chip.textContent = c;
+      chip.onclick = ()=>{
+        if(!comboAssignments[p.id]) comboAssignments[p.id] = new Set();
+        if(comboAssignments[p.id].has(c)) comboAssignments[p.id].delete(c);
+        else comboAssignments[p.id].add(c);
+        renderAll();
+      };
+      row.appendChild(chip);
+    });
+    block.appendChild(row);
+    el.appendChild(block);
+
+    if(openAskPanels.has(p.id)){
+      renderChatLog(p.id);
+      const goBtn = document.getElementById('ask-go-' + p.id);
+      const inputEl = document.getElementById('ask-input-' + p.id);
+      if(goBtn) goBtn.onclick = ()=> sendChat(p.id);
+      if(inputEl) inputEl.onkeydown = (e)=>{ if(e.key==='Enter') sendChat(p.id); };
+    }
+  });
+}
+
+// ---------- RENDER: breakfast chips ----------
+function renderBreakfastChips(){
+  const el = document.getElementById('breakfastChips');
+  el.innerHTML = '';
+  BREAKFAST.forEach(b=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (selectedBreakfasts.has(b) ? ' active' : '');
+    chip.textContent = b;
+    chip.onclick = ()=>{
+      if(selectedBreakfasts.has(b)) selectedBreakfasts.delete(b);
+      else selectedBreakfasts.add(b);
+      renderAll();
+    };
+    el.appendChild(chip);
+  });
+}
+
+// ---------- RENDER: stock chips ----------
+function renderStockChips(){
+  const el = document.getElementById('stockChips');
+  el.innerHTML = '';
+  STOCK_ITEMS.forEach(s=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip stock' + (stockedItems.has(s) ? ' active' : '');
+    chip.textContent = (stockedItems.has(s) ? '✓ ' : '') + s;
+    chip.onclick = ()=>{
+      if(stockedItems.has(s)) stockedItems.delete(s);
+      else stockedItems.add(s);
+      renderAll();
+    };
+    el.appendChild(chip);
+  });
+}
+
+// ---------- RENDER: grocery output ----------
+function renderGrocery(){
+  const out = document.getElementById('groceryOut');
+  let lines = [];
+
+  // proteins not marked stocked
+  selectedProteins.forEach(pid=>{
+    const p = PROTEINS.find(x=>x.id===pid);
+    if(!stockedItems.has(p.name)) lines.push(p.name);
+  });
+
+  // breakfast items not stocked
+  selectedBreakfasts.forEach(b=>{
+    if(!stockedItems.has(b)) lines.push(b + ' ingredients');
+  });
+
+  // works-list staples not marked stocked
+  STOCK_ITEMS.forEach(s=>{
+    if(!stockedItems.has(s) && !lines.includes(s)) {
+      // only include staples relevant to what's selected — keep it light, always show core snack staples
+      if(['Rice Cups','PB&J fixings','Greek Yogurt','Kefir','Mini Naan','Annie\'s Mac Cups','Elevation Protein Bars'].includes(s)){
+        lines.push(s);
+      }
+    }
+  });
+
+  // swap-layer condiments implied by combos, not stocked
+  let neededCondiments = new Set();
+  Object.keys(comboAssignments).forEach(pid=>{
+    comboAssignments[pid].forEach(c=>{
+      if(c.includes('Aioli')) neededCondiments.add('Aioli');
+      if(c.includes('Tacos') || c.includes('Fajitas')) { neededCondiments.add('Tortillas'); neededCondiments.add('Salsa'); }
+      if(c.includes('Wraps')) neededCondiments.add('Tortillas');
+      if(c.includes('Bowl')) neededCondiments.add('Rice');
+      if(c.includes('Bread')) neededCondiments.add('Bread');
+      if(c.includes('Rollups')) neededCondiments.add('Ranch');
+    });
+  });
+  neededCondiments.forEach(c=>{
+    if(!stockedItems.has(c) && !lines.includes(c)) lines.push(c);
+  });
+
+  out.value = lines.length ? lines.map(l=>'- ' + l).join('\n') : 'Pick proteins, breakfasts, and swap directions above — your list builds here.';
+}
+
+function copyList(){
+  const out = document.getElementById('groceryOut');
+  out.select();
+  document.execCommand('copy');
+  const btn = document.getElementById('copyBtn');
+  btn.textContent = 'Copied ✓';
+  btn.classList.add('copied');
+  setTimeout(()=>{ btn.textContent = 'Copy list'; btn.classList.remove('copied'); }, 1500);
+}
+
+function renderAll(){
+  renderWeekStrip();
+  renderTasteList();
+  renderProteinChips();
+  renderCombos();
+  renderBreakfastChips();
+  renderStockChips();
+  renderGrocery();
+}
+
+renderAll();
+loadTasteNotes();
+document.getElementById('taste-go').onclick = addTasteNote;
+document.getElementById('taste-input').onkeydown = (e)=>{ if(e.key==='Enter') addTasteNote(); };
+</script>
+
+</body>
+</html>

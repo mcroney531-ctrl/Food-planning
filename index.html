@@ -461,11 +461,17 @@ let chatHistories = {}; // proteinId -> array of {role, content}
 let apiKey = null;
 try { apiKey = localStorage.getItem('sw_api_key'); } catch(e){}
 let tasteNotes = []; // array of {id, note}
+let foodLogItems = []; // array of {title, category} — recipes saved in Food Log, used as ambient context only
 
 async function loadTasteNotes(){
   const { data, error } = await sb.from('food_taste_notes').select('id, note').eq('archived', false).order('created_at', { ascending: true });
   if(!error && data) tasteNotes = data;
   renderTasteList();
+}
+
+async function loadFoodLogContext(){
+  const { data, error } = await sb.from('food_log_items').select('title, category').eq('archived', false).order('created_at', { ascending: false }).limit(40);
+  if(!error && data) foodLogItems = data;
 }
 
 async function saveTasteNoteRemote(note){
@@ -566,7 +572,8 @@ async function sendChat(pid){
   renderChatLog(pid);
 
   const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time (weight these heavily — this is their actual signal, not the existing combo list): ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
-  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${tasteContext} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
+  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals this person has separately saved to their food log (real signal about what they gravitate toward — use as inspiration for tone and direction, don't just repeat these as combo names or treat them as a menu to pull from): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${tasteContext}${foodLogContext} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
 
   const apiMessages = chatHistories[pid]
     .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -847,6 +854,7 @@ function renderAll(){
 
 renderAll();
 loadTasteNotes();
+loadFoodLogContext();
 document.getElementById('taste-go').onclick = addTasteNote;
 document.getElementById('taste-input').onkeydown = (e)=>{ if(e.key==='Enter') addTasteNote(); };
 </script>

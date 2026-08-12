@@ -363,6 +363,179 @@
     color:var(--muted);
     padding:10px 20px 30px;
   }
+
+  /* ---------- Meatball + drawer ---------- */
+  .meatball{
+    position:absolute;
+    top:24px; right:18px;
+    z-index:2;               /* above the decorative header circle */
+    width:40px; height:40px;
+    border:none;
+    border-radius:50%;
+    background:rgba(255,255,255,0.12);
+    color:#fff;
+    font-size:19px;
+    letter-spacing:1px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 0 4px;         /* optically centers the baseline dots */
+  }
+  .meatball:hover{ background:rgba(255,255,255,0.22); }
+  .meatball:active{ transform:scale(0.94); }
+
+  .scrim{
+    position:fixed;
+    inset:0;
+    background:rgba(11,31,75,0.45);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease;
+    z-index:40;
+  }
+  .scrim.open{ opacity:1; pointer-events:auto; }
+
+  .drawer{
+    position:fixed;
+    top:0; right:0; bottom:0;
+    width:min(340px, 88vw);
+    background:#fff;
+    z-index:50;
+    transform:translateX(100%);
+    transition:transform .22s ease;
+    display:flex;
+    flex-direction:column;
+    box-shadow:-8px 0 28px rgba(11,31,75,0.18);
+  }
+  .drawer.open{ transform:translateX(0); }
+
+  .drawer-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:16px 14px;
+    background:var(--navy);
+    color:#fff;
+    flex-shrink:0;
+  }
+  .drawer-head h3{
+    margin:0;
+    flex:1;
+    font-size:15px;
+    font-weight:700;
+  }
+  .drawer-icon{
+    width:32px; height:32px;
+    flex-shrink:0;
+    border:none;
+    border-radius:8px;
+    background:rgba(255,255,255,0.12);
+    color:#fff;
+    font-size:15px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .drawer-icon:hover{ background:rgba(255,255,255,0.22); }
+  .drawer-icon[hidden]{ display:none; }
+
+  .drawer-body{
+    flex:1;
+    overflow-y:auto;
+    padding:14px;
+  }
+  .drawer-view[hidden]{ display:none; }
+
+  .menu-item{
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:10px;
+    padding:14px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    font-family:inherit;
+    font-size:14px;
+    font-weight:600;
+    color:var(--navy);
+    text-align:left;
+    cursor:pointer;
+  }
+  .menu-item:hover{ border-color:var(--periwinkle); }
+  .menu-item:active{ transform:scale(0.99); }
+  .menu-item .mi-emoji{ font-size:17px; flex-shrink:0; }
+  .menu-item .mi-text{ flex:1; }
+  .menu-item .mi-sub{
+    display:block;
+    margin-top:2px;
+    font-size:11px;
+    font-weight:400;
+    color:var(--muted);
+  }
+  .menu-item .mi-chev{ color:var(--periwinkle); font-size:16px; flex-shrink:0; }
+
+  .soon{
+    text-align:center;
+    padding:32px 12px;
+    font-size:13px;
+    line-height:1.6;
+    color:var(--muted);
+  }
+  .soon-badge{
+    display:inline-block;
+    margin-bottom:12px;
+    padding:4px 10px;
+    background:#F5F0FF;
+    border:1px solid #E4DBF7;
+    border-radius:10px;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:0.3px;
+    color:#6B4FC4;
+  }
+
+  .recipe-item{
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:11px 12px;
+    margin-bottom:8px;
+  }
+  .recipe-item .rt{
+    font-size:13px;
+    font-weight:600;
+    line-height:1.35;
+    color:var(--text);
+  }
+  .recipe-meta{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:6px;
+  }
+  .recipe-cat{
+    padding:2px 8px;
+    border-radius:9px;
+    background:#DCE4F7;
+    color:var(--navy-soft);
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:0.3px;
+  }
+  .recipe-item a{
+    font-size:11px;
+    font-weight:600;
+    color:var(--periwinkle);
+    text-decoration:none;
+  }
+  .recipe-item a:hover{ text-decoration:underline; }
+
+  body.drawer-open{ overflow:hidden; }
 </style>
 </head>
 <body>
@@ -370,23 +543,12 @@
 <header>
   <h1>Sunday Setup</h1>
   <p>Decide once. Execute all week.</p>
+  <button class="meatball" id="meatball" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">···</button>
 </header>
 
 <div class="weekstrip" id="weekstrip"></div>
 
 <main>
-
-  <section>
-    <div class="sec-head"><span class="sec-num">00</span><h2>Taste notes</h2></div>
-    <div class="sub">Add anything, anytime — a recipe you liked, a flavor you're into, a cuisine you keep gravitating to. This feeds every chat below.</div>
-    <div class="taste-input-row">
-      <input type="text" class="ask-input" id="taste-input" placeholder="e.g. 'liked that Cajun shrimp pasta I saw' or 'always into garlic + heat'">
-      <button class="ask-go" id="taste-go">Add</button>
-    </div>
-    <div class="taste-list" id="tasteList"></div>
-  </section>
-
-  <div class="divider"></div>
 
   <section>
     <div class="sec-head"><span class="sec-num">01</span><h2>Pick this week's proteins</h2></div>
@@ -429,6 +591,60 @@
 </main>
 
 <footer>Fill this out Sunday. Ignore it the rest of the week. Skipping a week is fine.</footer>
+
+<div class="scrim" id="scrim"></div>
+
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Menu" aria-hidden="true">
+  <div class="drawer-head">
+    <button class="drawer-icon" id="drawerBack" aria-label="Back" hidden>‹</button>
+    <h3 id="drawerTitle">Menu</h3>
+    <button class="drawer-icon" id="drawerClose" aria-label="Close menu">✕</button>
+  </div>
+
+  <div class="drawer-body">
+
+    <div class="drawer-view" id="view-menu">
+      <button class="menu-item" data-view="taste">
+        <span class="mi-emoji">📝</span>
+        <span class="mi-text">Taste notes<span class="mi-sub">What you keep coming back to</span></span>
+        <span class="mi-chev">›</span>
+      </button>
+      <button class="menu-item" data-view="chat">
+        <span class="mi-emoji">💬</span>
+        <span class="mi-text">Chat<span class="mi-sub">Coming soon</span></span>
+        <span class="mi-chev">›</span>
+      </button>
+      <button class="menu-item" data-view="recipes">
+        <span class="mi-emoji">📗</span>
+        <span class="mi-text">Saved recipes<span class="mi-sub">Everything in your Food Log</span></span>
+        <span class="mi-chev">›</span>
+      </button>
+    </div>
+
+    <div class="drawer-view" id="view-taste" hidden>
+      <div class="sub">Add anything, anytime — a recipe you liked, a flavor you're into, a cuisine you keep gravitating to. This feeds every protein chat.</div>
+      <div class="taste-input-row">
+        <input type="text" class="ask-input" id="taste-input" placeholder="e.g. 'always into garlic + heat'">
+        <button class="ask-go" id="taste-go">Add</button>
+      </div>
+      <div class="taste-list" id="tasteList"></div>
+    </div>
+
+    <div class="drawer-view" id="view-chat" hidden>
+      <div class="soon">
+        <span class="soon-badge">COMING SOON</span>
+        <div>A single chat across the whole week, instead of one per protein.</div>
+        <div style="margin-top:10px;">For now, use <strong>✨ Ask Claude</strong> inside any protein you've picked.</div>
+      </div>
+    </div>
+
+    <div class="drawer-view" id="view-recipes" hidden>
+      <div class="sub">Saved in Food Log. Read-only here — add and edit them over there.</div>
+      <div id="recipeList"></div>
+    </div>
+
+  </div>
+</aside>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
@@ -859,6 +1075,101 @@ function renderAll(){
   renderStockChips();
   renderGrocery();
 }
+
+// ---------- SAVED RECIPES (read-only view of Food Log) ----------
+// Separate from loadFoodLogContext() on purpose: that one stays capped at 40
+// titles and feeds Claude as ambient signal. This is the browsable list.
+let savedRecipes = null; // null = not loaded yet
+
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+async function loadSavedRecipes(){
+  const el = document.getElementById('recipeList');
+  el.innerHTML = '<div class="taste-empty">Loading…</div>';
+  // image is deliberately not selected — those are base64 data URLs and can be huge.
+  const { data, error } = await sb
+    .from('food_log_items')
+    .select('id, title, category, source_url')
+    .eq('archived', false)
+    .order('created_at', { ascending: false });
+  if(error){
+    savedRecipes = null;
+    el.innerHTML = '<div class="taste-empty">Could not load recipes. Check your connection and reopen.</div>';
+    return;
+  }
+  savedRecipes = data || [];
+  renderSavedRecipes();
+}
+
+function renderSavedRecipes(){
+  const el = document.getElementById('recipeList');
+  if(!savedRecipes) return;
+  if(savedRecipes.length === 0){
+    el.innerHTML = '<div class="taste-empty">Nothing saved yet — add recipes in Food Log and they show up here.</div>';
+    return;
+  }
+  el.innerHTML = savedRecipes.map(r => {
+    const link = r.source_url
+      ? `<a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer">View original ↗</a>`
+      : '';
+    const cat = r.category ? `<span class="recipe-cat">${escapeHtml(r.category)}</span>` : '';
+    return `<div class="recipe-item">
+      <div class="rt">${escapeHtml(r.title)}</div>
+      <div class="recipe-meta">${cat}${link}</div>
+    </div>`;
+  }).join('');
+}
+
+// ---------- DRAWER ----------
+const VIEW_TITLES = { menu:'Menu', taste:'Taste notes', chat:'Chat', recipes:'Saved recipes' };
+const drawer = document.getElementById('drawer');
+const scrim = document.getElementById('scrim');
+const meatball = document.getElementById('meatball');
+const drawerBack = document.getElementById('drawerBack');
+
+function showView(name){
+  document.querySelectorAll('.drawer-view').forEach(v => {
+    v.hidden = (v.id !== 'view-' + name);
+  });
+  document.getElementById('drawerTitle').textContent = VIEW_TITLES[name] || 'Menu';
+  drawerBack.hidden = (name === 'menu');
+  document.querySelector('.drawer-body').scrollTop = 0;
+  if(name === 'recipes' && savedRecipes === null) loadSavedRecipes();
+  if(name === 'taste') setTimeout(()=> document.getElementById('taste-input').focus(), 220);
+}
+
+function openDrawer(){
+  showView('menu');
+  drawer.classList.add('open');
+  scrim.classList.add('open');
+  drawer.setAttribute('aria-hidden','false');
+  meatball.setAttribute('aria-expanded','true');
+  document.body.classList.add('drawer-open');
+}
+
+function closeDrawer(){
+  drawer.classList.remove('open');
+  scrim.classList.remove('open');
+  drawer.setAttribute('aria-hidden','true');
+  meatball.setAttribute('aria-expanded','false');
+  document.body.classList.remove('drawer-open');
+  meatball.focus();
+}
+
+meatball.onclick = openDrawer;
+scrim.onclick = closeDrawer;
+document.getElementById('drawerClose').onclick = closeDrawer;
+drawerBack.onclick = ()=> showView('menu');
+document.querySelectorAll('.menu-item').forEach(btn=>{
+  btn.onclick = ()=> showView(btn.dataset.view);
+});
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
+});
 
 renderAll();
 loadTasteNotes();

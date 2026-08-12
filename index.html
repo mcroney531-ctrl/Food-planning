@@ -596,8 +596,10 @@ async function sendChat(pid){
         "anthropic-dangerous-direct-browser-access": "true"
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 500,
+        model: "claude-sonnet-5",
+        max_tokens: 4000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "low" },
         system: sysContext,
         messages: apiMessages
       })

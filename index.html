@@ -84,6 +84,9 @@
     margin:0 auto;
   }
   .day{
+    /* Cells size to their content. An even grid looks tidier but forces
+       mid-word breaks at phone width — a strip you can actually read at a
+       glance is worth more than perfectly equal columns. */
     flex:1;
     background:#fff;
     border:1px solid var(--line);
@@ -101,12 +104,20 @@
     letter-spacing:0.9px;
   }
   .day .fill{
-    font-size:11px;
+    font-size:10.5px;
     color:var(--navy);
     font-weight:600;
     margin-top:5px;
-    line-height:1.25;
-    word-break:break-word;
+    line-height:1.2;
+    /* Seven cells across a phone can't hold a full combo name. Hyphenate
+       properly rather than snapping mid-syllable, cap at two lines, and let
+       the day picker carry the full text. */
+    hyphens:auto;
+    overflow-wrap:break-word;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
   }
   /* Sunday is the anchor — the day the whole page is about */
   .day.plan{
@@ -118,6 +129,107 @@
   .day.plan .fill{ color:#fff; }
   .day.empty{ background:var(--panel); box-shadow:none; }
   .day.empty .fill{ color:#C7CBDA; font-weight:400; }
+  .day.tappable{
+    cursor:pointer;
+    transition:transform .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  .day.tappable:hover{ border-color:var(--periwinkle); }
+  .day.tappable:active{ transform:scale(0.96); }
+  .day.tappable:focus-visible{ outline:2px solid var(--periwinkle); outline-offset:2px; }
+  .day.empty .fill{ font-size:15px; line-height:1; color:#BFC5D8; }
+
+  .week-actions{
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:8px;
+    max-width:720px;
+    margin:0 auto;
+    padding:10px 20px 0;
+  }
+  .wa-btn{
+    border:1px solid var(--line);
+    background:#fff;
+    border-radius:var(--r-pill);
+    padding:6px 13px;
+    font-family:inherit;
+    font-size:12px;
+    font-weight:600;
+    color:var(--navy);
+    cursor:pointer;
+    box-shadow:var(--shadow-sm);
+    transition:transform .18s var(--ease), border-color .18s var(--ease);
+  }
+  .wa-btn:hover{ border-color:var(--periwinkle); }
+  .wa-btn:active{ transform:scale(0.97); }
+  .wa-btn.ghost{ background:transparent; box-shadow:none; color:var(--muted); font-weight:500; }
+  .wa-hint{ font-size:12px; color:var(--muted); }
+
+  /* Day picker — a sheet rather than the side drawer, since it's a choice
+     about something you just tapped rather than a place you navigated to. */
+  .sheet-wrap{ position:fixed; inset:0; z-index:55; }
+  .sheet-wrap[hidden]{ display:none; }
+  .sheet-backdrop{
+    position:absolute; inset:0;
+    background:rgba(11,31,75,0.45);
+    opacity:0;
+    transition:opacity .2s var(--ease);
+  }
+  .sheet-wrap.open .sheet-backdrop{ opacity:1; }
+  .sheet{
+    position:absolute;
+    left:50%; bottom:0;
+    width:min(520px, 100%);
+    max-height:78vh;
+    transform:translate(-50%, 100%);
+    transition:transform .24s var(--ease);
+    background:#fff;
+    border-radius:var(--r-lg) var(--r-lg) 0 0;
+    box-shadow:0 -8px 28px rgba(11,31,75,0.18);
+    display:flex;
+    flex-direction:column;
+  }
+  .sheet-wrap.open .sheet{ transform:translate(-50%, 0); }
+  .sheet-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:16px 14px;
+    background:var(--navy);
+    color:#fff;
+    border-radius:var(--r-lg) var(--r-lg) 0 0;
+    flex-shrink:0;
+  }
+  .sheet-head h3{ margin:0; flex:1; font-size:15px; font-weight:700; }
+  .sheet-body{ overflow-y:auto; padding:14px; }
+
+  .day-opt{
+    display:block;
+    width:100%;
+    margin-bottom:8px;
+    padding:12px 14px;
+    text-align:left;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:var(--r-md);
+    font-family:inherit;
+    cursor:pointer;
+    box-shadow:var(--shadow-sm);
+    transition:border-color .18s var(--ease), transform .18s var(--ease);
+  }
+  .day-opt:hover{ border-color:var(--periwinkle); }
+  .day-opt:active{ transform:scale(0.99); }
+  .day-opt.on{ border-color:var(--navy); background:#F3F5FB; }
+  .day-opt .do-name{ display:block; font-size:14px; font-weight:600; color:var(--text); }
+  .day-opt .do-meta{ display:block; margin-top:3px; font-size:11.5px; color:var(--muted); }
+  .day-opt.clear{
+    text-align:center;
+    color:#8E1B23;
+    font-size:13px;
+    font-weight:600;
+    box-shadow:none;
+    background:transparent;
+  }
 
   main{
     max-width:720px;
@@ -633,6 +745,7 @@
 </header>
 
 <div class="weekstrip" id="weekstrip"></div>
+<div class="week-actions" id="weekActions"></div>
 
 <main>
 
@@ -677,6 +790,17 @@
 </main>
 
 <footer>Fill this out Sunday. Ignore it the rest of the week. Skipping a week is fine.</footer>
+
+<div class="sheet-wrap" id="daySheet" hidden>
+  <div class="sheet-backdrop" id="daySheetBackdrop"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="daySheetTitle">
+    <div class="sheet-head">
+      <h3 id="daySheetTitle"></h3>
+      <button class="drawer-icon" id="daySheetClose" aria-label="Close">✕</button>
+    </div>
+    <div class="sheet-body" id="daySheetBody"></div>
+  </div>
+</div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -764,6 +888,7 @@ const DAYS = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
 // ---------- STATE ----------
 let selectedProteins = new Set();
 let comboAssignments = {}; // proteinId -> Set of combos
+let dayPlan = {};          // 'MON' -> combo string (Sunday is the plan day)
 let selectedBreakfasts = new Set();
 let stockedItems = new Set();
 let openAskPanels = new Set();
@@ -948,30 +1073,131 @@ async function sendChat(pid){
 }
 
 // ---------- RENDER: week strip ----------
-function renderWeekStrip(){
-  const el = document.getElementById('weekstrip');
-  el.innerHTML = '';
-  // build a flat list of planned items across selected proteins' combos + breakfasts
-  let plan = [];
+// Every combo assigned to a selected protein, with the protein it came from.
+function availableCombos(){
+  const out = [];
   selectedProteins.forEach(pid=>{
     const set = comboAssignments[pid];
-    if(set) set.forEach(c=>plan.push(c));
+    if(!set) return;
+    const p = PROTEINS.find(x=>x.id===pid);
+    set.forEach(c=> out.push({ combo:c, protein: p ? p.name : '' }));
   });
+  return out;
+}
+
+// A day pointing at a combo you've since dropped is stale — clear it rather
+// than showing a meal that isn't in the plan any more.
+function pruneDayPlan(){
+  const avail = new Set(availableCombos().map(c=>c.combo));
+  Object.keys(dayPlan).forEach(d=>{ if(!avail.has(dayPlan[d])) delete dayPlan[d]; });
+}
+
+function renderWeekStrip(){
+  pruneDayPlan();
+  const el = document.getElementById('weekstrip');
+  el.innerHTML = '';
   DAYS.forEach((d,i)=>{
     const div = document.createElement('div');
-    const item = plan[i-1]; // Sunday itself is planning day, Mon onward gets filled
     if(i===0){
+      // Sunday is the planning day itself, not a slot to fill
       div.className='day plan';
       div.innerHTML = `<div class="label">${d}</div><div class="fill">Plan day</div>`;
-    } else if(item){
-      div.className='day';
-      div.innerHTML = `<div class="label">${d}</div><div class="fill">${item}</div>`;
     } else {
-      div.className='day empty';
-      div.innerHTML = `<div class="label">${d}</div><div class="fill">—</div>`;
+      const item = dayPlan[d];
+      div.className = 'day tappable' + (item ? '' : ' empty');
+      div.innerHTML = `<div class="label">${d}</div><div class="fill" title="${item ? escapeHtml(item) : ''}">${item ? escapeHtml(item) : '+'}</div>`;
+      div.setAttribute('role','button');
+      div.setAttribute('tabindex','0');
+      div.setAttribute('aria-label', item ? `${d}: ${item}. Tap to change.` : `${d}: empty. Tap to assign a meal.`);
+      div.onclick = ()=> openDayPicker(d);
+      div.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openDayPicker(d); } };
     }
     el.appendChild(div);
   });
+  renderWeekActions();
+}
+
+function renderWeekActions(){
+  const el = document.getElementById('weekActions');
+  const avail = availableCombos();
+  const openDays = DAYS.slice(1).filter(d=>!dayPlan[d]).length;
+  const unused = avail.filter(c=> !Object.values(dayPlan).includes(c.combo)).length;
+  if(!avail.length){
+    el.innerHTML = '<span class="wa-hint">Pick proteins and swap directions below, then assign them to days.</span>';
+    return;
+  }
+  el.innerHTML = '';
+  if(openDays && unused){
+    const fill = document.createElement('button');
+    fill.className = 'wa-btn';
+    fill.textContent = `Fill ${Math.min(openDays, unused)} open ${openDays===1?'day':'days'}`;
+    fill.onclick = autoFillWeek;
+    el.appendChild(fill);
+  }
+  if(Object.keys(dayPlan).length){
+    const clear = document.createElement('button');
+    clear.className = 'wa-btn ghost';
+    clear.textContent = 'Clear week';
+    clear.onclick = ()=>{ dayPlan = {}; renderAll(); };
+    el.appendChild(clear);
+  }
+  const hint = document.createElement('span');
+  hint.className = 'wa-hint';
+  hint.textContent = unused ? `${unused} not on a day yet` : 'Every meal has a day';
+  el.appendChild(hint);
+}
+
+// Fills only empty days, and only with combos not already placed, so it never
+// overwrites a deliberate choice.
+function autoFillWeek(){
+  const pool = availableCombos()
+    .map(c=>c.combo)
+    .filter(c=> !Object.values(dayPlan).includes(c));
+  DAYS.slice(1).forEach(d=>{
+    if(!dayPlan[d] && pool.length) dayPlan[d] = pool.shift();
+  });
+  renderAll();
+}
+
+function openDayPicker(day){
+  const wrap = document.getElementById('daySheet');
+  document.getElementById('daySheetTitle').textContent = day.charAt(0) + day.slice(1).toLowerCase();
+  const body = document.getElementById('daySheetBody');
+  const avail = availableCombos();
+  body.innerHTML = '';
+
+  if(!avail.length){
+    body.innerHTML = '<div class="taste-empty">No swap directions picked yet. Choose proteins and tap what they become, then come back.</div>';
+  } else {
+    avail.forEach(({combo, protein})=>{
+      const used = Object.entries(dayPlan).find(([d,c])=> c===combo && d!==day);
+      const btn = document.createElement('button');
+      btn.className = 'day-opt' + (dayPlan[day]===combo ? ' on' : '');
+      btn.innerHTML = `<span class="do-name">${escapeHtml(combo)}</span>` +
+        `<span class="do-meta">${escapeHtml(protein)}${used ? ` · already on ${used[0]}` : ''}</span>`;
+      btn.onclick = ()=>{ dayPlan[day] = combo; closeDayPicker(); renderAll(); };
+      body.appendChild(btn);
+    });
+  }
+
+  if(dayPlan[day]){
+    const clear = document.createElement('button');
+    clear.className = 'day-opt clear';
+    clear.textContent = `Clear ${day.charAt(0) + day.slice(1).toLowerCase()}`;
+    clear.onclick = ()=>{ delete dayPlan[day]; closeDayPicker(); renderAll(); };
+    body.appendChild(clear);
+  }
+
+  wrap.hidden = false;
+  requestAnimationFrame(()=> wrap.classList.add('open'));
+  document.body.classList.add('drawer-open');
+}
+
+function closeDayPicker(){
+  const wrap = document.getElementById('daySheet');
+  wrap.classList.remove('open');
+  document.body.classList.remove('drawer-open');
+  setTimeout(()=>{ wrap.hidden = true; }, 200);
 }
 
 // ---------- RENDER: protein chips ----------
@@ -1206,6 +1432,7 @@ function snapshotWeek(){
     combos,
     breakfasts: [...selectedBreakfasts],
     stocked: [...stockedItems],
+    day_plan: { ...dayPlan },
   };
 }
 
@@ -1214,6 +1441,7 @@ function applyWeek(w){
   selectedProteins = new Set(w.proteins || []);
   selectedBreakfasts = new Set(w.breakfasts || []);
   stockedItems = new Set(w.stocked || []);
+  dayPlan = { ...(w.day_plan || {}) };
   comboAssignments = {};
   Object.entries(w.combos || {}).forEach(([pid, list])=>{
     comboAssignments[pid] = new Set(list);
@@ -1411,8 +1639,12 @@ drawerBack.onclick = ()=> showView('menu');
 document.querySelectorAll('.menu-item').forEach(btn=>{
   btn.onclick = ()=> showView(btn.dataset.view);
 });
+document.getElementById('daySheetClose').onclick = closeDayPicker;
+document.getElementById('daySheetBackdrop').onclick = closeDayPicker;
 document.addEventListener('keydown', (e)=>{
-  if(e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
+  if(e.key !== 'Escape') return;
+  if(document.getElementById('daySheet').classList.contains('open')) closeDayPicker();
+  else if(drawer.classList.contains('open')) closeDrawer();
 });
 
 async function init(){

@@ -2,7 +2,7 @@
   "name": "Sunday Setup",
   "short_name": "Sunday Setup",
   "description": "Decide once. Execute all week.",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#0B1F4B",

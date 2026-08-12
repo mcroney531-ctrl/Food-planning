@@ -314,6 +314,47 @@
     font-weight:600;
     box-shadow:var(--shadow-md);
   }
+  /* Recently eaten: legible but not alarming — a nudge, not a prohibition */
+  .chip.recent{ border-color:#E8D3AE; }
+  .chip-dot{
+    display:inline-block;
+    margin-left:7px;
+    padding:1px 6px;
+    border-radius:var(--r-pill);
+    background:#FBEBD8;
+    color:var(--amber);
+    font-size:9.5px;
+    font-weight:700;
+    letter-spacing:0.3px;
+    vertical-align:1px;
+  }
+  .chip.active .chip-dot{ background:rgba(255,255,255,0.18); color:#F0D9AE; }
+
+  .hist-week{
+    padding:12px 13px;
+    margin-bottom:8px;
+    border:1px solid var(--line);
+    border-radius:var(--r-md);
+    box-shadow:var(--shadow-sm);
+  }
+  .hist-head{
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    margin-bottom:8px;
+  }
+  .hist-date{ font-size:13px; font-weight:700; color:var(--navy); }
+  .hist-ago{ margin-left:auto; font-size:11px; color:var(--muted); white-space:nowrap; }
+  .hist-meals{ display:flex; flex-wrap:wrap; gap:6px; }
+  .hist-meal{
+    padding:4px 10px;
+    border-radius:var(--r-pill);
+    background:var(--panel);
+    border:1px solid var(--line);
+    font-size:12px;
+    color:var(--text);
+  }
+
   .chip.stock{
     background:#EAF3ED;
     border-color:#B7DBC3;
@@ -844,6 +885,11 @@
         <span class="mi-text">Chat<span class="mi-sub">Coming soon</span></span>
         <span class="mi-chev">›</span>
       </button>
+      <button class="menu-item" data-view="history">
+        <span class="mi-emoji">🗓️</span>
+        <span class="mi-text">Past weeks<span class="mi-sub">What you've already eaten</span></span>
+        <span class="mi-chev">›</span>
+      </button>
       <button class="menu-item" data-view="recipes">
         <span class="mi-emoji">📗</span>
         <span class="mi-text">Saved recipes<span class="mi-sub">Everything in your Food Log</span></span>
@@ -866,6 +912,11 @@
         <div>A single chat across the whole week, instead of one per protein.</div>
         <div style="margin-top:10px;">For now, use <strong>✨ Ask Claude</strong> inside any protein you've picked.</div>
       </div>
+    </div>
+
+    <div class="drawer-view" id="view-history" hidden>
+      <div class="sub">The last few weeks. Surprise me leans away from anything here, and Claude sees it too.</div>
+      <div id="historyList"></div>
     </div>
 
     <div class="drawer-view" id="view-recipes" hidden>
@@ -1042,7 +1093,8 @@ async function sendChat(pid){
 
   const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time (weight these heavily — this is their actual signal, not the existing combo list): ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
   const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals this person has separately saved to their food log (real signal about what they gravitate toward — use as inspiration for tone and direction, don't just repeat these as combo names or treat them as a menu to pull from): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
-  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${tasteContext}${foodLogContext} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
+  const historyCtx = historyContext();
+  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${tasteContext}${foodLogContext}${historyCtx} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
 
   const apiMessages = chatHistories[pid]
     .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -1261,12 +1313,7 @@ function renderCombos(){
     shuffleBtn.className = 'shuffle-btn';
     shuffleBtn.textContent = '🎲 Surprise me';
     shuffleBtn.onclick = ()=>{
-      const pool = [...p.combos];
-      const picks = new Set();
-      while(picks.size < Math.min(2, pool.length)){
-        picks.add(pool[Math.floor(Math.random()*pool.length)]);
-      }
-      comboAssignments[p.id] = picks;
+      comboAssignments[p.id] = new Set(pickWithVariety([...p.combos], Math.min(2, p.combos.length)));
       renderAll();
     };
     const claudeBtn = document.createElement('span');
@@ -1305,9 +1352,22 @@ function renderCombos(){
     row.className = 'combo-row';
     p.combos.forEach(c=>{
       const active = comboAssignments[p.id] && comboAssignments[p.id].has(c);
+      const ago = comboRecency.get(c);
       const chip = document.createElement('div');
-      chip.className = 'chip' + (active ? ' active' : '');
+      // Flag anything eaten in the last fortnight while you're choosing —
+      // the burnout this app exists to prevent starts with repeats you
+      // didn't notice you were picking.
+      chip.className = 'chip' + (active ? ' active' : '') + (ago && ago <= 2 ? ' recent' : '');
       chip.textContent = c;
+      if(ago){
+        chip.title = ago === 1 ? 'On last week\'s plan' : `Last planned ${ago} weeks ago`;
+        if(ago <= 2){
+          const dot = document.createElement('span');
+          dot.className = 'chip-dot';
+          dot.textContent = ago === 1 ? 'last wk' : '2 wks';
+          chip.appendChild(dot);
+        }
+      }
       chip.onclick = ()=>{
         if(!comboAssignments[p.id]) comboAssignments[p.id] = new Set();
         if(comboAssignments[p.id].has(c)) comboAssignments[p.id].delete(c);
@@ -1364,6 +1424,98 @@ function renderStockChips(){
 }
 
 // ---------- RENDER: grocery output ----------
+// ---------- HISTORY & VARIETY ----------
+// The problem this app exists to solve is getting sick of the same plate by
+// Wednesday. That needs memory: without knowing what recent weeks looked
+// like, "Surprise me" is just as likely to hand back last week's dinner.
+let recentWeeks = [];              // newest first, current week excluded
+let comboRecency = new Map();      // combo -> whole weeks since it was last planned
+
+function weeksBetween(aISO, bISO){
+  const ms = new Date(aISO + 'T00:00:00') - new Date(bISO + 'T00:00:00');
+  return Math.max(1, Math.round(ms / (7 * 24 * 60 * 60 * 1000)));
+}
+
+function computeRecency(){
+  comboRecency = new Map();
+  const now = weekStart();
+  recentWeeks.forEach(w=>{
+    // Calendar distance, not row order — skipping a week shouldn't make the
+    // week before it read as "last week".
+    const ago = weeksBetween(now, w.week_start);
+    Object.values(w.combos || {}).forEach(list=>{
+      (list || []).forEach(c=>{
+        if(!comboRecency.has(c) || comboRecency.get(c) > ago) comboRecency.set(c, ago);
+      });
+    });
+  });
+}
+
+async function loadHistory(){
+  const { data, error } = await sb.from('food_week_plans')
+    .select('week_start, proteins, combos, day_plan, breakfasts')
+    .lt('week_start', weekStart())
+    .order('week_start', { ascending:false })
+    .limit(8);
+  if(error){ console.warn('History unavailable:', error.message); return; }
+  recentWeeks = data || [];
+  computeRecency();
+}
+
+// Biased random rather than sorted: still a surprise, but one that leans hard
+// away from anything recent. Never-planned combos get the heaviest weight.
+function pickWithVariety(pool, n){
+  const items = pool.map(c=>{
+    // Linear, and unseen caps at 8. Squaring this made last week's dinner
+    // statistically impossible rather than merely unlikely — "surprise me"
+    // should still be able to surprise you with something you had recently.
+    const ago = Math.min(comboRecency.get(c) || 8, 8);
+    return { c, w: ago };
+  });
+  const picks = [];
+  while(picks.length < n && items.length){
+    const total = items.reduce((s,i)=> s + i.w, 0);
+    let r = Math.random() * total;
+    let idx = 0;
+    for(; idx < items.length - 1; idx++){ r -= items[idx].w; if(r <= 0) break; }
+    picks.push(items.splice(idx, 1)[0].c);
+  }
+  return picks;
+}
+
+function historyContext(){
+  if(!recentWeeks.length) return '';
+  const lines = recentWeeks.slice(0,4).map(w=>{
+    const meals = Object.values(w.combos || {}).flat();
+    if(!meals.length) return null;
+    const ago = weeksBetween(weekStart(), w.week_start);
+    return `${ago} week${ago===1?'':'s'} ago: ${meals.join(', ')}`;
+  }).filter(Boolean);
+  if(!lines.length) return '';
+  return `\n\nWhat this person actually ate in recent weeks (the whole point of this tool is not repeating these too soon — steer away from them unless asked):\n${lines.join('\n')}`;
+}
+
+function renderHistoryView(){
+  const el = document.getElementById('historyList');
+  if(!el) return;
+  if(!recentWeeks.length){
+    el.innerHTML = '<div class="taste-empty">No past weeks yet. Once you plan a couple, they show up here and start steering Surprise me away from repeats.</div>';
+    return;
+  }
+  el.innerHTML = recentWeeks.map(w=>{
+    const meals = Object.values(w.combos || {}).flat();
+    const ago = weeksBetween(weekStart(), w.week_start);
+    const date = new Date(w.week_start + 'T00:00:00')
+      .toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    return `<div class="hist-week">
+      <div class="hist-head"><span class="hist-date">Week of ${date}</span><span class="hist-ago">${ago} wk${ago===1?'':'s'} ago</span></div>
+      ${meals.length
+        ? `<div class="hist-meals">${meals.map(m=>`<span class="hist-meal">${escapeHtml(m)}</span>`).join('')}</div>`
+        : '<div class="taste-empty" style="padding:6px 0;text-align:left;">Nothing planned that week.</div>'}
+    </div>`;
+  }).join('');
+}
+
 // ---------- SHOPPING LIST ----------
 // The deterministic list below is category names, not groceries — you can't
 // add "Naan Breakfast Sandwich ingredients" to a cart. Claude converts the
@@ -1777,7 +1929,7 @@ function renderSavedRecipes(){
 }
 
 // ---------- DRAWER ----------
-const VIEW_TITLES = { menu:'Menu', taste:'Taste notes', chat:'Chat', recipes:'Saved recipes' };
+const VIEW_TITLES = { menu:'Menu', taste:'Taste notes', chat:'Chat', history:'Past weeks', recipes:'Saved recipes' };
 const drawer = document.getElementById('drawer');
 const scrim = document.getElementById('scrim');
 const meatball = document.getElementById('meatball');
@@ -1791,6 +1943,7 @@ function showView(name){
   drawerBack.hidden = (name === 'menu');
   document.querySelector('.drawer-body').scrollTop = 0;
   if(name === 'recipes' && savedRecipes === null) loadSavedRecipes();
+  if(name === 'history') renderHistoryView();
   if(name === 'taste') setTimeout(()=> document.getElementById('taste-input').focus(), 220);
 }
 
@@ -1834,6 +1987,7 @@ async function init(){
   // from arming, or the app would silently stop saving for the whole session.
   try { await loadCustomCombos(); } catch(e){ console.warn('Custom combos failed to load:', e); }
   try { await loadWeek(); } catch(e){ console.warn('Week failed to load:', e); remoteWeekOk = false; }
+  try { await loadHistory(); } catch(e){ console.warn('History failed to load:', e); }
   hydrated = true;                // saving is armed only after the load settles
   renderAll();
   loadTasteNotes().catch(e=> console.warn('Taste notes failed to load:', e));

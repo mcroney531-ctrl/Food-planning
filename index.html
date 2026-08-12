@@ -599,6 +599,29 @@
   .recipe-item a:hover{ text-decoration:underline; }
 
   body.drawer-open{ overflow:hidden; }
+
+  /* Above the drawer (z 50) so a failed write is visible with the menu open */
+  .toast{
+    position:fixed;
+    left:50%; bottom:22px;
+    z-index:60;
+    transform:translate(-50%, 12px);
+    max-width:min(420px, calc(100vw - 32px));
+    padding:12px 16px;
+    border-radius:var(--r-md);
+    background:var(--navy);
+    color:#fff;
+    font-size:13px;
+    line-height:1.45;
+    text-align:center;
+    box-shadow:var(--shadow-md);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s var(--ease), transform .2s var(--ease);
+  }
+  .toast.show{ opacity:1; transform:translate(-50%, 0); }
+  .toast.error{ background:#8E1B23; }
+  .toast.warn{ background:var(--amber); }
 </style>
 </head>
 <body>
@@ -654,6 +677,8 @@
 </main>
 
 <footer>Fill this out Sunday. Ignore it the rest of the week. Skipping a week is fine.</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <div class="scrim" id="scrim"></div>
 
@@ -761,12 +786,25 @@ async function loadFoodLogContext(){
 
 async function saveTasteNoteRemote(note){
   const { data, error } = await sb.from('food_taste_notes').insert({ note }).select('id, note').single();
-  if(!error && data) tasteNotes.push(data);
+  if(error || !data){
+    // Previously this failed silently: the note left the input and never
+    // arrived, with nothing on screen to say so.
+    toast('Could not save that note — check your connection.', 'error');
+    document.getElementById('taste-input').value = note;   // hand the text back
+    return;
+  }
+  tasteNotes.push(data);
   renderTasteList();
 }
 
 async function archiveTasteNoteRemote(id){
-  await sb.from('food_taste_notes').update({ archived: true }).eq('id', id);
+  const { error } = await sb.from('food_taste_notes').update({ archived: true }).eq('id', id);
+  if(error){
+    // Don't remove it locally — a failed delete used to look like a success
+    // until the next reload brought the note back.
+    toast('Could not remove that note — check your connection.', 'error');
+    return;
+  }
   tasteNotes = tasteNotes.filter(n => n.id !== id);
   renderTasteList();
 }
@@ -830,7 +868,10 @@ function renderChatLog(pid){
       const pid2 = el.dataset.pid;
       const idea = el.dataset.idea;
       const p = PROTEINS.find(x=>x.id===pid2);
-      if(p && !p.combos.includes(idea)) p.combos.push(idea);
+      if(p && !p.combos.includes(idea)){
+        p.combos.push(idea);
+        saveCustomCombo(pid2, idea);   // durable: an idea liked once should stay
+      }
       if(!comboAssignments[pid2]) comboAssignments[pid2] = new Set();
       comboAssignments[pid2].add(idea);
       renderAll();
@@ -1133,6 +1174,141 @@ function copyList(){
   setTimeout(()=>{ btn.textContent = 'Copy list'; btn.classList.remove('copied'); }, 1500);
 }
 
+// ---------- PERSISTENCE ----------
+// localStorage is the immediate, always-available store; Supabase mirrors it
+// so the plan follows you between devices. Writes go to both, reads prefer
+// whichever is newer. If the Supabase tables don't exist yet, everything
+// still works locally and we say so once instead of nagging.
+const LS_WEEK = 'sw_week_v1';
+const LS_CUSTOM = 'sw_custom_combos_v1';
+let hydrated = false;       // guards against saving during initial load
+let saveTimer = null;
+let remoteWeekOk = true;    // flips false if the table is missing
+let customCombos = {};      // proteinId -> [combo]
+
+function weekStart(d = new Date()){
+  const s = new Date(d);
+  s.setHours(0,0,0,0);
+  s.setDate(s.getDate() - s.getDay());   // back to Sunday
+  const pad = n => String(n).padStart(2,'0');
+  return `${s.getFullYear()}-${pad(s.getMonth()+1)}-${pad(s.getDate())}`;
+}
+
+function snapshotWeek(){
+  const combos = {};
+  Object.keys(comboAssignments).forEach(pid=>{
+    const set = comboAssignments[pid];
+    if(set && set.size) combos[pid] = [...set];
+  });
+  return {
+    week_start: weekStart(),
+    proteins: [...selectedProteins],
+    combos,
+    breakfasts: [...selectedBreakfasts],
+    stocked: [...stockedItems],
+  };
+}
+
+function applyWeek(w){
+  if(!w) return false;
+  selectedProteins = new Set(w.proteins || []);
+  selectedBreakfasts = new Set(w.breakfasts || []);
+  stockedItems = new Set(w.stocked || []);
+  comboAssignments = {};
+  Object.entries(w.combos || {}).forEach(([pid, list])=>{
+    comboAssignments[pid] = new Set(list);
+  });
+  return true;
+}
+
+function lsGet(key){
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; }
+  catch(e){ return null; }
+}
+function lsSet(key, value){
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
+}
+
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveWeek, 400);   // debounce rapid chip tapping
+}
+
+async function saveWeek(){
+  const snap = snapshotWeek();
+  lsSet(LS_WEEK, { ...snap, updated_at: new Date().toISOString() });
+  if(!remoteWeekOk) return;
+  const { error } = await sb.from('food_week_plans')
+    .upsert({ ...snap, updated_at: new Date().toISOString() }, { onConflict: 'week_start' });
+  if(error){
+    remoteWeekOk = false;
+    console.warn('Week not syncing to Supabase:', error.message);
+    toast('Saved on this device only — run supabase-schema.sql to sync.', 'warn');
+  }
+}
+
+async function loadWeek(){
+  const local = lsGet(LS_WEEK);
+  let remote = null;
+  const { data, error } = await sb.from('food_week_plans')
+    .select('*').eq('week_start', weekStart()).maybeSingle();
+  if(error){
+    remoteWeekOk = false;
+    console.warn('Week table unavailable:', error.message);
+    // Say it once per launch. The plan is safe locally, but it won't follow
+    // you to another device until the schema is applied — that's worth knowing.
+    setTimeout(()=> toast('Plan saved on this device only — run supabase-schema.sql to sync across devices.', 'warn'), 1200);
+  }
+  else remote = data;
+
+  // Prefer whichever copy was written last, so a phone edit doesn't lose to
+  // a stale desktop tab (or the reverse).
+  let chosen = remote;
+  if(local && local.week_start === weekStart()){
+    if(!remote || new Date(local.updated_at || 0) > new Date(remote.updated_at || 0)) chosen = local;
+  }
+  applyWeek(chosen);
+}
+
+async function saveCustomCombo(pid, combo){
+  if(!customCombos[pid]) customCombos[pid] = [];
+  if(!customCombos[pid].includes(combo)) customCombos[pid].push(combo);
+  lsSet(LS_CUSTOM, customCombos);
+  const { error } = await sb.from('food_custom_combos')
+    .upsert({ protein_id: pid, combo }, { onConflict: 'protein_id,combo' });
+  if(error) console.warn('Custom combo not synced:', error.message);
+}
+
+function applyCustomCombos(){
+  Object.entries(customCombos).forEach(([pid, list])=>{
+    const p = PROTEINS.find(x=>x.id===pid);
+    if(!p) return;
+    list.forEach(c=>{ if(!p.combos.includes(c)) p.combos.push(c); });
+  });
+}
+
+async function loadCustomCombos(){
+  customCombos = lsGet(LS_CUSTOM) || {};
+  const { data, error } = await sb.from('food_custom_combos')
+    .select('protein_id, combo').eq('archived', false);
+  if(!error && data){
+    data.forEach(r=>{
+      if(!customCombos[r.protein_id]) customCombos[r.protein_id] = [];
+      if(!customCombos[r.protein_id].includes(r.combo)) customCombos[r.protein_id].push(r.combo);
+    });
+    lsSet(LS_CUSTOM, customCombos);
+  }
+  applyCustomCombos();
+}
+
+function toast(msg, kind){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (kind ? ' ' + kind : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>{ el.className = 'toast'; }, 4000);
+}
+
 function renderAll(){
   renderWeekStrip();
   renderTasteList();
@@ -1141,6 +1317,7 @@ function renderAll(){
   renderBreakfastChips();
   renderStockChips();
   renderGrocery();
+  if(hydrated) scheduleSave();   // every mutation path already routes through here
 }
 
 // ---------- SAVED RECIPES (read-only view of Food Log) ----------
@@ -1238,9 +1415,19 @@ document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
 });
 
-renderAll();
-loadTasteNotes();
-loadFoodLogContext();
+async function init(){
+  renderAll();                    // paint immediately, don't wait on network
+  // Each load is isolated: a throw in any one of them must not stop `hydrated`
+  // from arming, or the app would silently stop saving for the whole session.
+  try { await loadCustomCombos(); } catch(e){ console.warn('Custom combos failed to load:', e); }
+  try { await loadWeek(); } catch(e){ console.warn('Week failed to load:', e); remoteWeekOk = false; }
+  hydrated = true;                // saving is armed only after the load settles
+  renderAll();
+  loadTasteNotes().catch(e=> console.warn('Taste notes failed to load:', e));
+  loadFoodLogContext().catch(e=> console.warn('Food Log context failed to load:', e));
+}
+init();
+
 document.getElementById('taste-go').onclick = addTasteNote;
 document.getElementById('taste-input').onkeydown = (e)=>{ if(e.key==='Enter') addTasteNote(); };
 </script>

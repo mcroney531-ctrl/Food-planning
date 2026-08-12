@@ -9,6 +9,10 @@
 <meta name="theme-color" content="#0B1F4B">
 <link rel="apple-touch-icon" href="icon-192.png">
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cabin:wght@400;500;600;700&display=swap">
+
 <title>Sunday Setup</title>
 <style>
   :root{
@@ -22,11 +26,14 @@
     --amber:#B8842A;
     --text:#1A1F2E;
     --muted:#6B7280;
+    /* Fallbacks matter here: the font is fetched over the network, so an
+       offline launch of the installed app renders in the system stack. */
+    --font:'Cabin', 'Segoe UI', system-ui, -apple-system, sans-serif;
   }
   *{box-sizing:border-box;}
   body{
     margin:0;
-    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family:var(--font);
     background:var(--bg);
     color:var(--text);
     padding-bottom:80px;
@@ -288,7 +295,7 @@
     border-radius:10px;
     padding:9px 12px;
     font-size:13px;
-    font-family:'Segoe UI', system-ui, sans-serif;
+    font-family:var(--font);
   }
   .ask-go{
     background:#6B4FC4;
@@ -322,7 +329,7 @@
     border:1.5px solid var(--line);
     border-radius:12px;
     padding:14px;
-    font-family:'Segoe UI', system-ui, sans-serif;
+    font-family:var(--font);
     font-size:14px;
     line-height:1.7;
     color:var(--text);

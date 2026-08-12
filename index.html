@@ -29,6 +29,14 @@
     /* Fallbacks matter here: the font is fetched over the network, so an
        offline launch of the installed app renders in the system stack. */
     --font:'Cabin', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+    /* One spacing scale, so vertical rhythm is a decision and not an accident */
+    --sp-1:6px; --sp-2:10px; --sp-3:16px; --sp-4:24px; --sp-5:32px;
+    --r-sm:10px; --r-md:14px; --r-lg:18px; --r-pill:999px;
+    /* Navy-tinted rather than black: shadows pick up the palette */
+    --shadow-sm:0 1px 2px rgba(11,31,75,0.05);
+    --shadow-md:0 4px 16px rgba(11,31,75,0.09);
+    --ease:cubic-bezier(.2,.8,.2,1);
   }
   *{box-sizing:border-box;}
   body{
@@ -39,30 +47,33 @@
     padding-bottom:80px;
   }
   header{
-    background:var(--navy);
+    background:linear-gradient(160deg, #12295C 0%, var(--navy) 55%, #081737 100%);
     color:#fff;
-    padding:28px 20px 22px;
+    padding:30px 20px 26px;
     position:relative;
     overflow:hidden;
   }
   header::after{
     content:"";
     position:absolute;
-    right:-40px; top:-40px;
-    width:160px; height:160px;
+    right:-50px; top:-60px;
+    width:190px; height:190px;
     border-radius:50%;
-    background:rgba(255,255,255,0.06);
+    background:radial-gradient(circle at 30% 30%, rgba(123,134,201,0.30), rgba(123,134,201,0) 70%);
   }
   header h1{
-    margin:0 0 4px;
-    font-size:26px;
+    margin:0 0 5px;
+    font-size:29px;
     font-weight:700;
-    letter-spacing:0.2px;
+    letter-spacing:-0.5px;   /* Cabin sets loose at display size */
+    line-height:1.1;
   }
   header p{
     margin:0;
     font-size:14px;
-    color:rgba(255,255,255,0.7);
+    font-weight:500;
+    letter-spacing:0.1px;
+    color:rgba(255,255,255,0.66);
   }
 
   .weekstrip{
@@ -74,28 +85,38 @@
   }
   .day{
     flex:1;
-    background:var(--panel);
+    background:#fff;
     border:1px solid var(--line);
-    border-radius:10px;
-    padding:8px 4px;
+    border-radius:var(--r-sm);
+    padding:9px 4px;
     text-align:center;
-    min-height:56px;
+    min-height:58px;
+    box-shadow:var(--shadow-sm);
   }
   .day .label{
-    font-size:10px;
+    font-size:9.5px;
     font-weight:700;
     color:var(--muted);
     text-transform:uppercase;
-    letter-spacing:0.5px;
+    letter-spacing:0.9px;
   }
   .day .fill{
     font-size:11px;
     color:var(--navy);
     font-weight:600;
-    margin-top:4px;
-    line-height:1.2;
+    margin-top:5px;
+    line-height:1.25;
     word-break:break-word;
   }
+  /* Sunday is the anchor — the day the whole page is about */
+  .day.plan{
+    background:var(--navy);
+    border-color:var(--navy);
+    box-shadow:var(--shadow-md);
+  }
+  .day.plan .label{ color:rgba(255,255,255,0.55); }
+  .day.plan .fill{ color:#fff; }
+  .day.empty{ background:var(--panel); box-shadow:none; }
   .day.empty .fill{ color:#C7CBDA; font-weight:400; }
 
   main{
@@ -104,30 +125,39 @@
     padding:20px;
   }
   section{
-    margin-bottom:28px;
+    margin-bottom:var(--sp-5);
   }
   .sec-head{
     display:flex;
-    align-items:baseline;
-    gap:8px;
-    margin-bottom:10px;
+    align-items:center;
+    gap:10px;
+    margin-bottom:var(--sp-1);
   }
+  /* The step number reads as a marker, not as body copy */
   .sec-num{
-    font-size:12px;
-    font-weight:700;
+    flex-shrink:0;
+    min-width:26px;
+    padding:3px 0;
+    border-radius:var(--r-sm);
+    background:#EEF0F9;
     color:var(--periwinkle);
-    letter-spacing:1px;
+    font-size:10.5px;
+    font-weight:700;
+    letter-spacing:0.8px;
+    text-align:center;
   }
   h2{
-    font-size:17px;
+    font-size:19px;
     margin:0;
     color:var(--navy);
     font-weight:700;
+    letter-spacing:-0.3px;
   }
   .sub{
-    font-size:13px;
+    font-size:13.5px;
+    line-height:1.55;
     color:var(--muted);
-    margin:2px 0 14px;
+    margin:0 0 var(--sp-3);
   }
 
   .chip-grid{
@@ -138,20 +168,25 @@
   .chip{
     border:1.5px solid var(--line);
     background:#fff;
-    border-radius:20px;
-    padding:9px 15px;
+    border-radius:var(--r-pill);
+    padding:9px 16px;
     font-size:14px;
+    font-weight:500;
     cursor:pointer;
     color:var(--text);
-    transition:all .15s ease;
+    transition:transform .18s var(--ease), box-shadow .18s var(--ease),
+               background-color .18s var(--ease), border-color .18s var(--ease);
     user-select:none;
+    box-shadow:var(--shadow-sm);
   }
   .chip:hover{ border-color:var(--periwinkle); }
+  .chip:active{ transform:scale(0.97); }
   .chip.active{
     background:var(--navy);
     border-color:var(--navy);
     color:#fff;
     font-weight:600;
+    box-shadow:var(--shadow-md);
   }
   .chip.stock{
     background:#EAF3ED;
@@ -164,31 +199,41 @@
 
   .protein-block{
     border:1px solid var(--line);
-    border-radius:14px;
+    border-radius:var(--r-lg);
     padding:16px;
     margin-bottom:12px;
-    background:var(--panel);
+    background:#fff;
+    box-shadow:var(--shadow-sm);
   }
   .protein-block .pname{
     font-weight:700;
     color:var(--navy);
-    font-size:15px;
-    margin-bottom:10px;
+    font-size:16px;
+    letter-spacing:-0.2px;
+    margin-bottom:12px;
     display:flex;
     align-items:center;
+    /* Buttons drop to their own line before the name or tag ever break */
+    flex-wrap:wrap;
     gap:8px;
   }
+  .protein-block .pn{ white-space:nowrap; }
   .tag{
     font-size:10px;
     font-weight:700;
-    padding:2px 8px;
-    border-radius:10px;
-    letter-spacing:0.3px;
+    padding:3px 8px;
+    border-radius:var(--r-sm);
+    letter-spacing:0.5px;
+    white-space:nowrap;
   }
   .tag.freezer{ background:#DCE4F7; color:var(--navy-soft); }
   .tag.fresh{ background:#FBEBD8; color:var(--amber); }
-  .shuffle-btn{
+  .pactions{
+    display:flex;
+    gap:8px;
     margin-left:auto;
+  }
+  .shuffle-btn{
     font-size:11px;
     font-weight:600;
     color:var(--periwinkle);
@@ -285,9 +330,11 @@
     flex-shrink:0;
   }
   .taste-empty{
+    padding:22px 4px;
+    text-align:center;
     font-size:13px;
+    line-height:1.55;
     color:var(--muted);
-    font-style:italic;
   }
   .ask-input{
     flex:1;
@@ -337,18 +384,22 @@
     background:#fff;
   }
   .copy-btn{
-    margin-top:10px;
+    margin-top:var(--sp-2);
     background:var(--navy);
     color:#fff;
     border:none;
-    border-radius:10px;
-    padding:12px 20px;
-    font-size:14px;
+    border-radius:var(--r-md);
+    padding:14px 20px;
+    font-family:var(--font);
+    font-size:15px;
     font-weight:600;
+    letter-spacing:0.2px;
     cursor:pointer;
     width:100%;
+    box-shadow:var(--shadow-md);
+    transition:transform .18s var(--ease), background-color .18s var(--ease);
   }
-  .copy-btn:active{ background:var(--navy-soft); }
+  .copy-btn:active{ background:var(--navy-soft); transform:scale(0.99); }
   .copy-btn.copied{ background:var(--green); }
 
   .note{
@@ -360,15 +411,17 @@
 
   .divider{
     height:1px;
-    background:var(--line);
-    margin:28px 0;
+    /* Fades at both ends so it separates without drawing a hard line */
+    background:linear-gradient(to right, transparent, var(--line) 12%, var(--line) 88%, transparent);
+    margin:var(--sp-5) 0;
   }
 
   footer{
     text-align:center;
-    font-size:12px;
+    font-size:12.5px;
+    line-height:1.6;
     color:var(--muted);
-    padding:10px 20px 30px;
+    padding:var(--sp-2) 20px var(--sp-5);
   }
 
   /* ---------- Meatball + drawer ---------- */
@@ -466,13 +519,15 @@
     padding:14px;
     background:var(--panel);
     border:1px solid var(--line);
-    border-radius:12px;
+    border-radius:var(--r-md);
     font-family:inherit;
     font-size:14px;
     font-weight:600;
     color:var(--navy);
     text-align:left;
     cursor:pointer;
+    box-shadow:var(--shadow-sm);
+    transition:transform .18s var(--ease), border-color .18s var(--ease);
   }
   .menu-item:hover{ border-color:var(--periwinkle); }
   .menu-item:active{ transform:scale(0.99); }
@@ -509,9 +564,10 @@
 
   .recipe-item{
     border:1px solid var(--line);
-    border-radius:12px;
-    padding:11px 12px;
+    border-radius:var(--r-md);
+    padding:12px 13px;
     margin-bottom:8px;
+    box-shadow:var(--shadow-sm);
   }
   .recipe-item .rt{
     font-size:13px;
@@ -864,7 +920,7 @@ function renderWeekStrip(){
     const div = document.createElement('div');
     const item = plan[i-1]; // Sunday itself is planning day, Mon onward gets filled
     if(i===0){
-      div.className='day';
+      div.className='day plan';
       div.innerHTML = `<div class="label">${d}</div><div class="fill">Plan day</div>`;
     } else if(item){
       div.className='day';
@@ -915,7 +971,7 @@ function renderCombos(){
     const tagHtml = p.freezer ? '<span class="tag freezer">FREEZER</span>' : '<span class="tag fresh">FRESH-COOK</span>';
     const nameRow = document.createElement('div');
     nameRow.className = 'pname';
-    nameRow.innerHTML = `${p.name} ${tagHtml}`;
+    nameRow.innerHTML = `<span class="pn">${p.name}</span> ${tagHtml}`;
     const shuffleBtn = document.createElement('span');
     shuffleBtn.className = 'shuffle-btn';
     shuffleBtn.textContent = '🎲 Surprise me';
@@ -928,12 +984,16 @@ function renderCombos(){
       comboAssignments[p.id] = picks;
       renderAll();
     };
-    nameRow.appendChild(shuffleBtn);
     const claudeBtn = document.createElement('span');
     claudeBtn.className = 'shuffle-btn claude-btn';
     claudeBtn.textContent = '✨ Ask Claude';
     claudeBtn.onclick = ()=> toggleAskPanel(p.id);
-    nameRow.appendChild(claudeBtn);
+    // Grouped so the pair wraps to a second line together instead of splitting
+    const actions = document.createElement('div');
+    actions.className = 'pactions';
+    actions.appendChild(shuffleBtn);
+    actions.appendChild(claudeBtn);
+    nameRow.appendChild(actions);
     block.appendChild(nameRow);
 
     const askPanel = document.createElement('div');

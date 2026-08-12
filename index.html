@@ -164,6 +164,20 @@
   .wa-btn:active{ transform:scale(0.97); }
   .wa-btn.ghost{ background:transparent; box-shadow:none; color:var(--muted); font-weight:500; }
   .wa-hint{ font-size:12px; color:var(--muted); }
+  .wa-hint.stale{ color:var(--amber); font-weight:600; }
+  .wa-btn:disabled{ opacity:0.5; cursor:default; }
+  .wa-btn.claude-btn{
+    background:linear-gradient(135deg,#F5F0FF,#EDE7FA);
+    border-color:#D9CCF5;
+    color:#6B4FC4;
+  }
+  .grocery-bar{
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:10px;
+    margin-bottom:var(--sp-2);
+  }
 
   /* Day picker — a sheet rather than the side drawer, since it's a choice
      about something you just tapped rather than a place you navigated to. */
@@ -782,6 +796,10 @@
   <section>
     <div class="sec-head"><span class="sec-num">05</span><h2>Tuesday's cart</h2></div>
     <div class="sub">Copy this into the Instacart order. No deciding, just adding.</div>
+    <div class="grocery-bar">
+      <button class="wa-btn claude-btn" id="buildListBtn">✨ Build shopping list</button>
+      <span class="wa-hint" id="groceryStatus"></span>
+    </div>
     <textarea class="grocery-out" id="groceryOut" readonly></textarea>
     <button class="copy-btn" id="copyBtn" onclick="copyList()">Copy list</button>
     <div class="note">Order still opens Tuesday evening — this just makes Tuesday a copy-paste, not a decision.</div>
@@ -1346,6 +1364,158 @@ function renderStockChips(){
 }
 
 // ---------- RENDER: grocery output ----------
+// ---------- SHOPPING LIST ----------
+// The deterministic list below is category names, not groceries — you can't
+// add "Naan Breakfast Sandwich ingredients" to a cart. Claude converts the
+// week's actual meals into ingredients instead. The result is cached on the
+// week record and keyed to a hash of the plan, so opening the app doesn't
+// re-bill and a stale list announces itself rather than lying quietly.
+let groceryData = null;   // { plan_hash, generated_at, text }
+
+function planHash(){
+  const parts = [
+    [...selectedProteins].sort().join('|'),
+    Object.keys(comboAssignments).sort().map(pid=>`${pid}:${[...comboAssignments[pid]].sort().join(',')}`).join('|'),
+    [...selectedBreakfasts].sort().join('|'),
+    [...stockedItems].sort().join('|'),
+  ].join('||');
+  let h = 0;
+  for(let i=0;i<parts.length;i++){ h = ((h<<5) - h + parts.charCodeAt(i)) | 0; }
+  return String(h);
+}
+
+function planSummary(){
+  const meals = [];
+  DAYS.slice(1).forEach(d=>{
+    if(dayPlan[d]){
+      const owner = availableCombos().find(c=>c.combo===dayPlan[d]);
+      meals.push(`${d}: ${dayPlan[d]}${owner && owner.protein ? ` (${owner.protein})` : ''}`);
+    }
+  });
+  // Combos chosen but not yet on a day still need buying.
+  const unplaced = availableCombos()
+    .filter(c=> !Object.values(dayPlan).includes(c.combo))
+    .map(c=> `${c.combo} (${c.protein})`);
+  return { meals, unplaced };
+}
+
+function renderGroceryStatus(){
+  const btn = document.getElementById('buildListBtn');
+  const status = document.getElementById('groceryStatus');
+  if(!btn || !status) return;
+  const hasPlan = availableCombos().length || selectedBreakfasts.size;
+  btn.disabled = !hasPlan;
+  if(!groceryData){
+    btn.textContent = '✨ Build shopping list';
+    status.textContent = hasPlan ? 'Turns your meals into actual ingredients' : 'Pick some meals first';
+    return;
+  }
+  const stale = groceryData.plan_hash !== planHash();
+  btn.textContent = stale ? '✨ Rebuild list' : '✨ Rebuild';
+  status.textContent = stale
+    ? 'Plan changed since this was built'
+    : `Built from this week's meals`;
+  status.className = 'wa-hint' + (stale ? ' stale' : '');
+}
+
+async function buildGroceryList(){
+  const { meals, unplaced } = planSummary();
+  if(!meals.length && !unplaced.length && !selectedBreakfasts.size){
+    toast('Pick some meals first.', 'warn');
+    return;
+  }
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) return;
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+
+  const btn = document.getElementById('buildListBtn');
+  const status = document.getElementById('groceryStatus');
+  btn.disabled = true;
+  btn.textContent = 'Building…';
+  status.textContent = 'Working out ingredients';
+
+  const stockedList = [...stockedItems];
+  const prompt_ = [
+    'Build one consolidated grocery list for this week of meals.',
+    meals.length ? `\nDinners by day:\n${meals.join('\n')}` : '',
+    unplaced.length ? `\nAlso planned but not assigned to a day yet:\n${unplaced.join('\n')}` : '',
+    selectedBreakfasts.size ? `\nBreakfasts to cover all week:\n${[...selectedBreakfasts].join('\n')}` : '',
+    stockedList.length ? `\nAlready stocked — do NOT include these or their obvious equivalents:\n${stockedList.join(', ')}` : '',
+    '\nRules: combine the same ingredient across meals into one line with a sensible total quantity. Cooking for one adult. Give practical store quantities (e.g. "1 lb ground beef", "1 bunch cilantro"), not recipe measurements like "2 tbsp". Skip salt, pepper, oil, and basic spices. Group by store section.',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body: JSON.stringify({
+        model:'claude-sonnet-5',
+        max_tokens:4000,
+        thinking:{ type:'adaptive' },
+        output_config:{
+          effort:'low',
+          format:{
+            type:'json_schema',
+            schema:{
+              type:'object',
+              properties:{
+                sections:{
+                  type:'array',
+                  items:{
+                    type:'object',
+                    properties:{
+                      name:{ type:'string' },
+                      items:{ type:'array', items:{ type:'string' } }
+                    },
+                    required:['name','items'],
+                    additionalProperties:false
+                  }
+                }
+              },
+              required:['sections'],
+              additionalProperties:false
+            }
+          }
+        },
+        messages:[{ role:'user', content: prompt_ }]
+      })
+    });
+    const data = await res.json();
+    if(data.error) throw new Error(data.error.message || 'API error');
+    if(data.stop_reason === 'refusal') throw new Error('the request was declined.');
+
+    const block = (data.content || []).find(b=>b.type==='text');
+    if(!block) throw new Error('empty response.');
+    let parsed;
+    try { parsed = JSON.parse(block.text); }
+    catch(e){ throw new Error('the response came back malformed. Try again.'); }
+    const text = (parsed.sections || [])
+      .filter(s=> s.items && s.items.length)
+      .map(s=> `${s.name.toUpperCase()}\n${s.items.map(i=>'- '+i).join('\n')}`)
+      .join('\n\n');
+    if(!text) throw new Error('nothing came back.');
+
+    groceryData = { plan_hash: planHash(), generated_at: new Date().toISOString(), text };
+    renderAll();
+    toast('Shopping list built.');
+  } catch(err){
+    console.warn('Grocery build failed:', err);
+    toast('Could not build the list — ' + (err.message || 'try again.'), 'error');
+    renderGroceryStatus();
+  } finally {
+    const b = document.getElementById('buildListBtn');
+    if(b) b.disabled = false;
+    renderGroceryStatus();
+  }
+}
+
 function renderGrocery(){
   const out = document.getElementById('groceryOut');
   let lines = [];
@@ -1387,7 +1557,15 @@ function renderGrocery(){
     if(!stockedItems.has(c) && !lines.includes(c)) lines.push(c);
   });
 
-  out.value = lines.length ? lines.map(l=>'- ' + l).join('\n') : 'Pick proteins, breakfasts, and swap directions above — your list builds here.';
+  if(groceryData && groceryData.plan_hash === planHash()){
+    out.value = groceryData.text;          // real ingredients, built from the plan
+  } else if(groceryData){
+    // Stale: still the most useful thing on screen, and the status line says so.
+    out.value = groceryData.text;
+  } else {
+    out.value = lines.length ? lines.map(l=>'- ' + l).join('\n') : 'Pick proteins, breakfasts, and swap directions above — your list builds here.';
+  }
+  renderGroceryStatus();
 }
 
 function copyList(){
@@ -1433,6 +1611,7 @@ function snapshotWeek(){
     breakfasts: [...selectedBreakfasts],
     stocked: [...stockedItems],
     day_plan: { ...dayPlan },
+    grocery: groceryData || {},
   };
 }
 
@@ -1442,6 +1621,7 @@ function applyWeek(w){
   selectedBreakfasts = new Set(w.breakfasts || []);
   stockedItems = new Set(w.stocked || []);
   dayPlan = { ...(w.day_plan || {}) };
+  groceryData = (w.grocery && w.grocery.text) ? w.grocery : null;
   comboAssignments = {};
   Object.entries(w.combos || {}).forEach(([pid, list])=>{
     comboAssignments[pid] = new Set(list);
@@ -1639,6 +1819,7 @@ drawerBack.onclick = ()=> showView('menu');
 document.querySelectorAll('.menu-item').forEach(btn=>{
   btn.onclick = ()=> showView(btn.dataset.view);
 });
+document.getElementById('buildListBtn').onclick = buildGroceryList;
 document.getElementById('daySheetClose').onclick = closeDayPicker;
 document.getElementById('daySheetBackdrop').onclick = closeDayPicker;
 document.addEventListener('keydown', (e)=>{

@@ -21,6 +21,10 @@ create table if not exists public.food_week_plans (
   updated_at  timestamptz not null default now()
 );
 
+-- Added later; safe to run on a table that already exists.
+alter table public.food_week_plans
+  add column if not exists grocery jsonb not null default '{}'::jsonb;
+
 alter table public.food_week_plans enable row level security;
 
 do $$ begin

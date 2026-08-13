@@ -1576,11 +1576,17 @@ function emptyProfile(){
 async function loadTasteProfile(){
   tasteProfile = lsGet(LS_PROFILE);
   const { data, error } = await sb.from('food_taste_profile').select('*').eq('id',1).maybeSingle();
-  if(!error && data){
-    // Remote wins only when it's actually newer — same lesson as custom items.
-    if(!tasteProfile || new Date(data.updated_at||0) >= new Date(tasteProfile.updated_at||0)){
+  if(!error){
+    if(data && (!tasteProfile || new Date(data.updated_at||0) >= new Date(tasteProfile.updated_at||0))){
+      // Remote wins only when it's actually newer — same lesson as custom items.
       tasteProfile = { axes:data.axes||{}, effort:data.effort||{}, sensibility:data.sensibility||'', updated_at:data.updated_at };
       lsSet(LS_PROFILE, tasteProfile);
+    } else if(tasteProfile && !data){
+      // Built before the table existed: push it up instead of stranding it.
+      sb.from('food_taste_profile').upsert({
+        id:1, axes:tasteProfile.axes, effort:tasteProfile.effort,
+        sensibility:tasteProfile.sensibility, updated_at:tasteProfile.updated_at || new Date().toISOString(),
+      }, { onConflict:'id' }).then(({ error:e })=>{ if(e) console.warn('Profile backfill failed:', e.message); });
     }
   }
   if(tasteProfile) tasteProfile = Object.assign(emptyProfile(), tasteProfile);
@@ -2410,6 +2416,16 @@ async function loadWeek(){
     if(!remote || new Date(local.updated_at || 0) > new Date(remote.updated_at || 0)) chosen = local;
   }
   applyWeek(chosen);
+
+  // If the local copy won, push it up rather than waiting for the next edit.
+  // Otherwise a week planned before the tables existed (or while offline) sits
+  // on one device until you happen to touch something.
+  if(chosen && chosen === local && remoteWeekOk && chosen !== remote){
+    const { error:e } = await sb.from('food_week_plans')
+      .upsert({ ...snapshotWeek(), updated_at: local.updated_at || new Date().toISOString() },
+              { onConflict:'week_start' });
+    if(e) console.warn('Week backfill failed:', e.message);
+  }
 }
 
 async function saveCustomCombo(pid, combo){

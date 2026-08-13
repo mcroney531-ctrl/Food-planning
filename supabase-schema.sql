@@ -1,6 +1,8 @@
 -- Sunday Setup — schema additions
--- Run in the Supabase SQL editor for project "Reading Center" (fdbkdsracxomwyytfgob).
--- Safe to re-run: every statement is guarded.
+--
+-- APPLIED. Live on project "Reading Center" (fdbkdsracxomwyytfgob) as migration
+-- sunday_setup_week_plans_and_taste_profile. Kept here as the source of record;
+-- safe to re-run, since every statement is guarded.
 --
 -- Follows the existing food_ conventions: open select/insert/update for
 -- anon + authenticated, and no delete policy anywhere — "removing" something

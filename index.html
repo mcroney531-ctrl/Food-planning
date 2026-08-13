@@ -330,6 +330,30 @@
   }
   .chip.active .chip-dot{ background:rgba(255,255,255,0.18); color:#F0D9AE; }
 
+  .chip.add-chip{
+    border-style:dashed;
+    color:var(--periwinkle);
+    font-weight:600;
+    box-shadow:none;
+  }
+  .chip-x{
+    display:inline-block;
+    margin-left:8px;
+    padding:0 3px;
+    color:var(--muted);
+    font-size:11px;
+    font-weight:700;
+    vertical-align:1px;
+  }
+  .chip-x:hover{ color:#8E1B23; }
+  .chip.active .chip-x{ color:rgba(255,255,255,0.6); }
+  .add-row{
+    display:flex;
+    gap:8px;
+    flex:1 1 220px;
+    min-width:200px;
+  }
+
   .hist-week{
     padding:12px 13px;
     margin-bottom:8px;
@@ -764,6 +788,20 @@
     text-decoration:none;
   }
   .recipe-item a:hover{ text-decoration:underline; }
+  .recipe-add{
+    margin-top:9px;
+    padding:6px 12px;
+    background:linear-gradient(135deg,#F5F0FF,#EDE7FA);
+    border:1px solid #D9CCF5;
+    border-radius:var(--r-pill);
+    font-family:inherit;
+    font-size:11.5px;
+    font-weight:700;
+    color:#6B4FC4;
+    cursor:pointer;
+    transition:transform .18s var(--ease);
+  }
+  .recipe-add:active{ transform:scale(0.97); }
 
   body.drawer-open{ overflow:hidden; }
 
@@ -1229,10 +1267,30 @@ function autoFillWeek(){
   renderAll();
 }
 
-function openDayPicker(day){
+// Generic bottom sheet: pass a title and a function that fills the body.
+function openSheet(title, fillBody){
   const wrap = document.getElementById('daySheet');
-  document.getElementById('daySheetTitle').textContent = day.charAt(0) + day.slice(1).toLowerCase();
+  document.getElementById('daySheetTitle').textContent = title;
   const body = document.getElementById('daySheetBody');
+  body.innerHTML = '';
+  fillBody(body);
+  wrap.hidden = false;
+  requestAnimationFrame(()=> wrap.classList.add('open'));
+  document.body.classList.add('drawer-open');
+}
+
+function closeSheet(){
+  const wrap = document.getElementById('daySheet');
+  wrap.classList.remove('open');
+  document.body.classList.remove('drawer-open');
+  setTimeout(()=>{ wrap.hidden = true; }, 200);
+}
+
+function openDayPicker(day){
+  openSheet(day.charAt(0) + day.slice(1).toLowerCase(), (body)=> fillDayPicker(body, day));
+}
+
+function fillDayPicker(body, day){
   const avail = availableCombos();
   body.innerHTML = '';
 
@@ -1245,7 +1303,7 @@ function openDayPicker(day){
       btn.className = 'day-opt' + (dayPlan[day]===combo ? ' on' : '');
       btn.innerHTML = `<span class="do-name">${escapeHtml(combo)}</span>` +
         `<span class="do-meta">${escapeHtml(protein)}${used ? ` · already on ${used[0]}` : ''}</span>`;
-      btn.onclick = ()=>{ dayPlan[day] = combo; closeDayPicker(); renderAll(); };
+      btn.onclick = ()=>{ dayPlan[day] = combo; closeSheet(); renderAll(); };
       body.appendChild(btn);
     });
   }
@@ -1254,23 +1312,24 @@ function openDayPicker(day){
     const clear = document.createElement('button');
     clear.className = 'day-opt clear';
     clear.textContent = `Clear ${day.charAt(0) + day.slice(1).toLowerCase()}`;
-    clear.onclick = ()=>{ delete dayPlan[day]; closeDayPicker(); renderAll(); };
+    clear.onclick = ()=>{ delete dayPlan[day]; closeSheet(); renderAll(); };
     body.appendChild(clear);
   }
 
-  wrap.hidden = false;
-  requestAnimationFrame(()=> wrap.classList.add('open'));
-  document.body.classList.add('drawer-open');
-}
-
-function closeDayPicker(){
-  const wrap = document.getElementById('daySheet');
-  wrap.classList.remove('open');
-  document.body.classList.remove('drawer-open');
-  setTimeout(()=>{ wrap.hidden = true; }, 200);
 }
 
 // ---------- RENDER: protein chips ----------
+// Custom items get a remove affordance; the built-in list stays fixed.
+function attachRemove(chip, kind, name){
+  if(!isCustom(kind, name)) return;
+  const x = document.createElement('span');
+  x.className = 'chip-x';
+  x.textContent = '✕';
+  x.title = 'Remove ' + name;
+  x.onclick = (e)=>{ e.stopPropagation(); removeCustomItem(kind, name); };
+  chip.appendChild(x);
+}
+
 function renderProteinChips(){
   const el = document.getElementById('proteinChips');
   el.innerHTML = '';
@@ -1278,6 +1337,7 @@ function renderProteinChips(){
     const chip = document.createElement('div');
     chip.className = 'chip' + (selectedProteins.has(p.id) ? ' active' : '');
     chip.textContent = p.name + (p.freezer ? ' ❄' : '');
+    attachRemove(chip, 'protein', p.name);
     chip.onclick = ()=>{
       if(selectedProteins.has(p.id)){
         selectedProteins.delete(p.id);
@@ -1290,6 +1350,7 @@ function renderProteinChips(){
     };
     el.appendChild(chip);
   });
+  appendAddChip(el, 'protein', 'Add protein');
 }
 
 // ---------- RENDER: combo blocks ----------
@@ -1397,6 +1458,7 @@ function renderBreakfastChips(){
     const chip = document.createElement('div');
     chip.className = 'chip' + (selectedBreakfasts.has(b) ? ' active' : '');
     chip.textContent = b;
+    attachRemove(chip, 'breakfast', b);
     chip.onclick = ()=>{
       if(selectedBreakfasts.has(b)) selectedBreakfasts.delete(b);
       else selectedBreakfasts.add(b);
@@ -1404,6 +1466,7 @@ function renderBreakfastChips(){
     };
     el.appendChild(chip);
   });
+  appendAddChip(el, 'breakfast', 'Add breakfast');
 }
 
 // ---------- RENDER: stock chips ----------
@@ -1414,6 +1477,7 @@ function renderStockChips(){
     const chip = document.createElement('div');
     chip.className = 'chip stock' + (stockedItems.has(s) ? ' active' : '');
     chip.textContent = (stockedItems.has(s) ? '✓ ' : '') + s;
+    attachRemove(chip, 'stock', s);
     chip.onclick = ()=>{
       if(stockedItems.has(s)) stockedItems.delete(s);
       else stockedItems.add(s);
@@ -1421,9 +1485,133 @@ function renderStockChips(){
     };
     el.appendChild(chip);
   });
+  appendAddChip(el, 'stock', 'Add staple');
 }
 
 // ---------- RENDER: grocery output ----------
+// ---------- CUSTOM ITEMS ----------
+// PROTEINS / BREAKFAST / STOCK_ITEMS above are the starting set. Anything you
+// add lives here instead, so the lists can grow without editing the page.
+const LS_ITEMS = 'sw_custom_items_v1';
+let customItems = { protein:[], breakfast:[], stock:[] };   // {name, freezer}
+
+function applyCustomItems(){
+  customItems.protein.forEach(it=>{
+    if(PROTEINS.some(p=>p.name === it.name)) return;
+    PROTEINS.push({ id:'custom_'+it.name.toLowerCase().replace(/[^a-z0-9]+/g,'_'),
+                    name: it.name, freezer: !!it.freezer, combos: [], custom: true });
+  });
+  customItems.breakfast.forEach(it=>{ if(!BREAKFAST.includes(it.name)) BREAKFAST.push(it.name); });
+  customItems.stock.forEach(it=>{ if(!STOCK_ITEMS.includes(it.name)) STOCK_ITEMS.push(it.name); });
+}
+
+async function loadCustomItems(){
+  customItems = lsGet(LS_ITEMS) || { protein:[], breakfast:[], stock:[] };
+  const { data, error } = await sb.from('food_custom_items')
+    .select('kind, name, freezer').eq('archived', false);
+  if(!error && data){
+    // Union rather than replace. Treating remote as authoritative meant a
+    // successful-but-empty read — a fresh table, or anything added while
+    // offline — silently destroyed local items. Removals still stick because
+    // removeCustomItem drops the item locally and archives it remotely, so
+    // neither side reintroduces it.
+    data.forEach(r=>{
+      if(!customItems[r.kind]) return;
+      if(!customItems[r.kind].some(i=>i.name === r.name)){
+        customItems[r.kind].push({ name:r.name, freezer:r.freezer });
+      }
+    });
+    // Push anything that only exists locally, so an offline add self-heals.
+    const remote = new Set(data.map(r=> r.kind + ' ' + r.name));
+    Object.entries(customItems).forEach(([kind, list])=>{
+      list.forEach(it=>{
+        if(!remote.has(kind + ' ' + it.name)){
+          sb.from('food_custom_items')
+            .upsert({ kind, name: it.name, freezer: !!it.freezer, archived:false }, { onConflict:'kind,name' })
+            .then(({ error:e })=>{ if(e) console.warn('Backfill failed:', e.message); });
+        }
+      });
+    });
+    lsSet(LS_ITEMS, customItems);
+  }
+  applyCustomItems();
+}
+
+async function addCustomItem(kind, name, freezer){
+  name = (name || '').trim();
+  if(!name) return false;
+  const existing = { protein: PROTEINS.map(p=>p.name), breakfast: BREAKFAST, stock: STOCK_ITEMS }[kind];
+  if(existing.some(n=> n.toLowerCase() === name.toLowerCase())){
+    toast(`"${name}" is already on the list.`, 'warn');
+    return false;
+  }
+  customItems[kind].push({ name, freezer: !!freezer });
+  lsSet(LS_ITEMS, customItems);
+  applyCustomItems();
+  renderAll();
+  const { error } = await sb.from('food_custom_items')
+    .upsert({ kind, name, freezer: !!freezer, archived:false }, { onConflict:'kind,name' });
+  if(error){
+    console.warn('Custom item not synced:', error.message);
+    toast('Added on this device only — run supabase-schema.sql to sync.', 'warn');
+  }
+  return true;
+}
+
+async function removeCustomItem(kind, name){
+  customItems[kind] = customItems[kind].filter(i=>i.name !== name);
+  lsSet(LS_ITEMS, customItems);
+  if(kind === 'protein'){
+    const idx = PROTEINS.findIndex(p=>p.name===name && p.custom);
+    if(idx > -1){
+      selectedProteins.delete(PROTEINS[idx].id);
+      delete comboAssignments[PROTEINS[idx].id];
+      PROTEINS.splice(idx,1);
+    }
+  } else if(kind === 'breakfast'){
+    const idx = BREAKFAST.indexOf(name);
+    if(idx > -1) BREAKFAST.splice(idx,1);
+    selectedBreakfasts.delete(name);
+  } else {
+    const idx = STOCK_ITEMS.indexOf(name);
+    if(idx > -1) STOCK_ITEMS.splice(idx,1);
+    stockedItems.delete(name);
+  }
+  renderAll();
+  const { error } = await sb.from('food_custom_items')
+    .update({ archived:true }).eq('kind', kind).eq('name', name);
+  if(error) console.warn('Custom item not archived remotely:', error.message);
+}
+
+function isCustom(kind, name){
+  return customItems[kind].some(i=>i.name === name);
+}
+
+// A "+ Add" chip that swaps itself for an inline field — same shape as the
+// taste-notes row, rather than a browser prompt().
+function appendAddChip(container, kind, label){
+  const chip = document.createElement('div');
+  chip.className = 'chip add-chip';
+  chip.textContent = '+ ' + label;
+  chip.onclick = ()=>{
+    const row = document.createElement('div');
+    row.className = 'add-row';
+    row.innerHTML = `<input type="text" class="ask-input" placeholder="${label}">` +
+      `<button class="ask-go">Add</button>`;
+    chip.replaceWith(row);
+    const input = row.querySelector('input');
+    const go = row.querySelector('button');
+    const commit = async ()=>{
+      const ok = await addCustomItem(kind, input.value);
+      if(!ok) renderAll();     // duplicate or empty: restore the chip
+    };
+    go.onclick = commit;
+    input.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderAll(); };
+    input.focus();
+  };
+  container.appendChild(chip);
+}
+
 // ---------- HISTORY & VARIETY ----------
 // The problem this app exists to solve is getting sick of the same plate by
 // Wednesday. That needs memory: without knowing what recent weeks looked
@@ -1916,7 +2104,7 @@ function renderSavedRecipes(){
     el.innerHTML = '<div class="taste-empty">Nothing saved yet — add recipes in Food Log and they show up here.</div>';
     return;
   }
-  el.innerHTML = savedRecipes.map(r => {
+  el.innerHTML = savedRecipes.map((r, i) => {
     const link = r.source_url
       ? `<a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer">View original ↗</a>`
       : '';
@@ -1924,8 +2112,43 @@ function renderSavedRecipes(){
     return `<div class="recipe-item">
       <div class="rt">${escapeHtml(r.title)}</div>
       <div class="recipe-meta">${cat}${link}</div>
+      <button class="recipe-add" data-i="${i}">+ Add to plan</button>
     </div>`;
   }).join('');
+  el.querySelectorAll('.recipe-add').forEach(btn=>{
+    btn.onclick = ()=> addRecipeToPlan(savedRecipes[parseInt(btn.dataset.i)]);
+  });
+}
+
+// The bridge between the two apps: a saved recipe becomes a swap direction on
+// whichever protein it belongs to, and lands in this week straight away.
+function addRecipeToPlan(recipe){
+  if(!recipe) return;
+  openSheet('Add to which protein?', (body)=>{
+    PROTEINS.forEach(p=>{
+      const already = p.combos.includes(recipe.title);
+      const btn = document.createElement('button');
+      btn.className = 'day-opt';
+      btn.innerHTML = `<span class="do-name">${escapeHtml(p.name)}</span>` +
+        `<span class="do-meta">${already ? 'Already a swap direction here' : (selectedProteins.has(p.id) ? 'Picked this week' : 'Not picked this week — will be added')}</span>`;
+      btn.onclick = ()=>{
+        if(!p.combos.includes(recipe.title)){
+          p.combos.push(recipe.title);
+          saveCustomCombo(p.id, recipe.title);
+        }
+        // Put it in this week rather than just the library — "add to plan"
+        // should mean the plan, so pick the protein too if it wasn't picked.
+        selectedProteins.add(p.id);
+        if(!comboAssignments[p.id]) comboAssignments[p.id] = new Set();
+        comboAssignments[p.id].add(recipe.title);
+        closeSheet();
+        closeDrawer();
+        renderAll();
+        toast(`Added to ${p.name} — assign it to a day when you're ready.`);
+      };
+      body.appendChild(btn);
+    });
+  });
 }
 
 // ---------- DRAWER ----------
@@ -1973,11 +2196,11 @@ document.querySelectorAll('.menu-item').forEach(btn=>{
   btn.onclick = ()=> showView(btn.dataset.view);
 });
 document.getElementById('buildListBtn').onclick = buildGroceryList;
-document.getElementById('daySheetClose').onclick = closeDayPicker;
-document.getElementById('daySheetBackdrop').onclick = closeDayPicker;
+document.getElementById('daySheetClose').onclick = closeSheet;
+document.getElementById('daySheetBackdrop').onclick = closeSheet;
 document.addEventListener('keydown', (e)=>{
   if(e.key !== 'Escape') return;
-  if(document.getElementById('daySheet').classList.contains('open')) closeDayPicker();
+  if(document.getElementById('daySheet').classList.contains('open')) closeSheet();
   else if(drawer.classList.contains('open')) closeDrawer();
 });
 
@@ -1985,6 +2208,7 @@ async function init(){
   renderAll();                    // paint immediately, don't wait on network
   // Each load is isolated: a throw in any one of them must not stop `hydrated`
   // from arming, or the app would silently stop saving for the whole session.
+  try { await loadCustomItems(); } catch(e){ console.warn('Custom items failed to load:', e); }
   try { await loadCustomCombos(); } catch(e){ console.warn('Custom combos failed to load:', e); }
   try { await loadWeek(); } catch(e){ console.warn('Week failed to load:', e); remoteWeekOk = false; }
   try { await loadHistory(); } catch(e){ console.warn('History failed to load:', e); }

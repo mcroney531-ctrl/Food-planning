@@ -73,3 +73,35 @@ do $$ begin
   create policy food_custom_combos_update on public.food_custom_combos
     for update to anon, authenticated using (true) with check (true);
 exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------------------
+-- 3. food_custom_items — proteins, breakfasts, and pantry staples you add
+--    yourself. These lists were hardcoded in the page, so changing them meant
+--    editing HTML and redeploying.
+-- ---------------------------------------------------------------------------
+create table if not exists public.food_custom_items (
+  id          bigint generated always as identity primary key,
+  kind        text        not null check (kind in ('protein','breakfast','stock')),
+  name        text        not null,
+  freezer     boolean     not null default false,   -- proteins only
+  created_at  timestamptz not null default now(),
+  archived    boolean     not null default false,
+  unique (kind, name)
+);
+
+alter table public.food_custom_items enable row level security;
+
+do $$ begin
+  create policy food_custom_items_select on public.food_custom_items
+    for select to anon, authenticated using (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_custom_items_insert on public.food_custom_items
+    for insert to anon, authenticated with check (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_custom_items_update on public.food_custom_items
+    for update to anon, authenticated using (true) with check (true);
+exception when duplicate_object then null; end $$;

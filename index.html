@@ -354,6 +354,67 @@
     min-width:200px;
   }
 
+  .axis{ margin-bottom:16px; }
+  .axis-label{
+    font-size:10.5px;
+    font-weight:700;
+    letter-spacing:0.9px;
+    text-transform:uppercase;
+    color:var(--periwinkle);
+    margin-bottom:7px;
+  }
+  .axis-chips{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .axis-chip{
+    display:inline-flex;
+    align-items:center;
+    padding:5px 10px;
+    border:1px solid var(--line);
+    border-radius:var(--r-pill);
+    background:#F5F0FF;
+    font-size:12.5px;
+    color:var(--text);
+  }
+  .axis-chip.add{
+    background:transparent;
+    border-style:dashed;
+    color:var(--periwinkle);
+    font-weight:700;
+    cursor:pointer;
+    padding:5px 12px;
+  }
+  .axis-input{
+    border:1.5px solid var(--periwinkle);
+    border-radius:var(--r-pill);
+    padding:4px 11px;
+    font-family:inherit;
+    font-size:12.5px;
+    width:130px;
+  }
+  .eff-row{ display:flex; align-items:center; gap:9px; }
+  .eff-row .axis-input{ width:74px; text-align:center; }
+  .profile-divider{
+    height:1px;
+    background:var(--line);
+    margin:22px 0 16px;
+  }
+  .profile-foot{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:4px;
+  }
+  .gaps .gap{
+    padding:11px 12px;
+    margin-bottom:9px;
+    border:1px solid #E4DBF7;
+    border-radius:var(--r-md);
+    background:#FBF9FF;
+  }
+  .gap-q{ font-size:13px; font-weight:600; color:var(--text); line-height:1.4; }
+  .gap-why{ font-size:11.5px; color:var(--muted); margin:3px 0 8px; line-height:1.4; }
+  .gap .ask-input{ width:100%; }
+
   .hist-week{
     padding:12px 13px;
     margin-bottom:8px;
@@ -914,8 +975,8 @@
 
     <div class="drawer-view" id="view-menu">
       <button class="menu-item" data-view="taste">
-        <span class="mi-emoji">📝</span>
-        <span class="mi-text">Taste notes<span class="mi-sub">What you keep coming back to</span></span>
+        <span class="mi-emoji">🧭</span>
+        <span class="mi-text">Taste profile<span class="mi-sub">What you like, and the notes behind it</span></span>
         <span class="mi-chev">›</span>
       </button>
       <button class="menu-item" data-view="chat">
@@ -936,7 +997,12 @@
     </div>
 
     <div class="drawer-view" id="view-taste" hidden>
-      <div class="sub">Add anything, anytime — a recipe you liked, a flavor you're into, a cuisine you keep gravitating to. This feeds every protein chat.</div>
+      <div class="sub">The axes underneath what you eat. Everything Claude suggests reasons from this.</div>
+      <div id="profileBody"></div>
+
+      <div class="profile-divider"></div>
+      <div class="axis-label">Taste notes</div>
+      <div class="sub" style="margin-top:6px;">The raw material. Add anything, anytime — a recipe you liked, a flavor you're into.</div>
       <div class="taste-input-row">
         <input type="text" class="ask-input" id="taste-input" placeholder="e.g. 'always into garlic + heat'">
         <button class="ask-go" id="taste-go">Add</button>
@@ -1131,8 +1197,9 @@ async function sendChat(pid){
 
   const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time (weight these heavily — this is their actual signal, not the existing combo list): ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
   const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals this person has separately saved to their food log (real signal about what they gravitate toward — use as inspiration for tone and direction, don't just repeat these as combo names or treat them as a menu to pull from): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const profileCtx = profileContext();
   const historyCtx = historyContext();
-  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${tasteContext}${foodLogContext}${historyCtx} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
+  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${profileCtx}${tasteContext}${foodLogContext}${historyCtx} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
 
   const apiMessages = chatHistories[pid]
     .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -1489,6 +1556,333 @@ function renderStockChips(){
 }
 
 // ---------- RENDER: grocery output ----------
+// ---------- TASTE PROFILE ----------
+// Taste notes are instances; this is the axes under them. "Liked that Cajun
+// shrimp pasta" contains a cuisine, a protein, a format and a flavour axis,
+// and none of that was extractable from a flat string list — which is why
+// "he likes X so maybe Y" never worked. Everything Claude-facing reads this.
+const LS_PROFILE = 'sw_taste_profile_v1';
+const AXIS_LABELS = { flavors:'Flavors', cuisines:'Cuisines', formats:'Formats', textures:'Textures' };
+let tasteProfile = null;   // { axes, effort, sensibility, updated_at }
+let profileGaps = [];      // questions Claude couldn't infer, awaiting answers
+let profileBusy = false;
+
+function emptyProfile(){
+  return { axes:{ flavors:[], cuisines:[], formats:[], textures:[] },
+           effort:{ weeknight_minutes:null, notes:'' },
+           sensibility:'', updated_at:null };
+}
+
+async function loadTasteProfile(){
+  tasteProfile = lsGet(LS_PROFILE);
+  const { data, error } = await sb.from('food_taste_profile').select('*').eq('id',1).maybeSingle();
+  if(!error && data){
+    // Remote wins only when it's actually newer — same lesson as custom items.
+    if(!tasteProfile || new Date(data.updated_at||0) >= new Date(tasteProfile.updated_at||0)){
+      tasteProfile = { axes:data.axes||{}, effort:data.effort||{}, sensibility:data.sensibility||'', updated_at:data.updated_at };
+      lsSet(LS_PROFILE, tasteProfile);
+    }
+  }
+  if(tasteProfile) tasteProfile = Object.assign(emptyProfile(), tasteProfile);
+}
+
+async function saveTasteProfile(){
+  if(!tasteProfile) return;
+  tasteProfile.updated_at = new Date().toISOString();
+  lsSet(LS_PROFILE, tasteProfile);
+  const { error } = await sb.from('food_taste_profile').upsert({
+    id:1, axes:tasteProfile.axes, effort:tasteProfile.effort,
+    sensibility:tasteProfile.sensibility, updated_at:tasteProfile.updated_at,
+  }, { onConflict:'id' });
+  if(error) console.warn('Profile not synced:', error.message);
+}
+
+// Everything the profile can be inferred from, in one place.
+function profileSignals(){
+  const cooked = [];
+  recentWeeks.forEach(w=>{
+    Object.values(w.day_plan || {}).forEach(m=>{ if(m) cooked.push(m); });
+  });
+  return {
+    notes: tasteNotes.map(n=>n.note),
+    saved: foodLogItems.map(i=>`${i.title} (${i.category})`),
+    cooked,
+    current: availableCombos().map(c=>c.combo),
+  };
+}
+
+const PROFILE_SCHEMA = {
+  type:'object',
+  properties:{
+    axes:{
+      type:'object',
+      properties:{
+        flavors:{ type:'array', items:{type:'string'} },
+        cuisines:{ type:'array', items:{type:'string'} },
+        formats:{ type:'array', items:{type:'string'} },
+        textures:{ type:'array', items:{type:'string'} },
+      },
+      required:['flavors','cuisines','formats','textures'],
+      additionalProperties:false
+    },
+    effort:{
+      type:'object',
+      properties:{
+        weeknight_minutes:{ type:['integer','null'] },
+        notes:{ type:'string' }
+      },
+      required:['weeknight_minutes','notes'],
+      additionalProperties:false
+    },
+    sensibility:{ type:'string' },
+    gaps:{
+      type:'array',
+      items:{
+        type:'object',
+        properties:{ question:{type:'string'}, why:{type:'string'} },
+        required:['question','why'],
+        additionalProperties:false
+      }
+    }
+  },
+  required:['axes','effort','sensibility','gaps'],
+  additionalProperties:false
+};
+
+async function callProfileModel(userText){
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) return null;
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({
+      model:'claude-sonnet-5',
+      max_tokens:4000,
+      thinking:{ type:'adaptive' },
+      output_config:{ effort:'medium', format:{ type:'json_schema', schema:PROFILE_SCHEMA } },
+      system:"You build a compact taste profile for one person's weeknight cooking. Infer the axes underneath what they eat, not a restatement of it: flavours they gravitate to, cuisines, the formats they prefer (bowls, handhelds, sheet-pan, one-pot), textures. Keep every tag 1-3 words and lowercase. Aim for 3-6 tags per axis — a long list is the same as no signal. The sensibility field is 2-3 sentences of the nuance tags can't hold: how they like to cook and eat, in plain language. For gaps, ask only what you genuinely could not infer and that would change future suggestions; each needs a short 'why'. Ask at most 6, fewer if the evidence is good.",
+      messages:[{ role:'user', content:userText }]
+    })
+  });
+  const data = await res.json();
+  if(data.error) throw new Error(data.error.message || 'API error');
+  if(data.stop_reason === 'refusal') throw new Error('the request was declined.');
+  const block = (data.content||[]).find(b=>b.type==='text');
+  if(!block) throw new Error('empty response.');
+  try { return JSON.parse(block.text); }
+  catch(e){ throw new Error('the response came back malformed. Try again.'); }
+}
+
+async function buildProfile(){
+  if(profileBusy) return;
+  const s = profileSignals();
+  if(!s.notes.length && !s.saved.length && !s.cooked.length && !s.current.length){
+    toast('Nothing to build from yet — add a few taste notes first.', 'warn');
+    return;
+  }
+  profileBusy = true; renderProfileView();
+  try {
+    const text = [
+      'Build a taste profile from the evidence below.',
+      s.notes.length   ? `\nTheir own notes about what they like:\n- ${s.notes.join('\n- ')}` : '',
+      s.saved.length   ? `\nRecipes they saved (interest, not necessarily cooked):\n- ${s.saved.join('\n- ')}` : '',
+      s.cooked.length  ? `\nMeals they actually put on a day in past weeks (stronger signal than saves):\n- ${s.cooked.join('\n- ')}` : '',
+      s.current.length ? `\nOn this week's plan:\n- ${s.current.join('\n- ')}` : '',
+    ].filter(Boolean).join('\n');
+    const out = await callProfileModel(text);
+    if(!out) return;
+    tasteProfile = Object.assign(emptyProfile(), {
+      axes:out.axes, effort:out.effort, sensibility:out.sensibility,
+    });
+    profileGaps = out.gaps || [];
+    await saveTasteProfile();
+    toast(profileGaps.length ? 'Draft built — a few questions below.' : 'Profile built.');
+  } catch(err){
+    console.warn('Profile build failed:', err);
+    toast('Could not build the profile — ' + (err.message || 'try again.'), 'error');
+  } finally {
+    profileBusy = false; renderProfileView();
+  }
+}
+
+async function submitGapAnswers(){
+  const answers = [];
+  document.querySelectorAll('#profileGaps .gap-a').forEach((inp, i)=>{
+    const v = inp.value.trim();
+    if(v) answers.push(`Q: ${profileGaps[i].question}\nA: ${v}`);
+  });
+  if(!answers.length){ toast('Answer at least one to refine it.', 'warn'); return; }
+  profileBusy = true; renderProfileView();
+  try {
+    const text = [
+      'Revise this taste profile using the answers below. Keep what still holds; change what the answers contradict.',
+      `\nCurrent profile:\n${JSON.stringify({ axes:tasteProfile.axes, effort:tasteProfile.effort, sensibility:tasteProfile.sensibility })}`,
+      `\nTheir answers:\n${answers.join('\n\n')}`,
+      '\nReturn any remaining gaps only if something important is still genuinely unknown — an empty list is the right answer if the picture is good enough.',
+    ].join('\n');
+    const out = await callProfileModel(text);
+    if(!out) return;
+    tasteProfile = Object.assign(emptyProfile(), {
+      axes:out.axes, effort:out.effort, sensibility:out.sensibility,
+    });
+    profileGaps = out.gaps || [];
+    await saveTasteProfile();
+    toast('Profile updated.');
+  } catch(err){
+    console.warn('Profile refine failed:', err);
+    toast('Could not update the profile — ' + (err.message || 'try again.'), 'error');
+  } finally {
+    profileBusy = false; renderProfileView();
+  }
+}
+
+// What every other Claude call reads. Compact on purpose: this rides along in
+// every prompt, so it earns its tokens by being axes rather than transcript.
+function profileContext(){
+  if(!tasteProfile) return '';
+  const a = tasteProfile.axes || {};
+  const parts = Object.keys(AXIS_LABELS)
+    .filter(k=> (a[k]||[]).length)
+    .map(k=> `${AXIS_LABELS[k].toLowerCase()}: ${a[k].join(', ')}`);
+  const eff = tasteProfile.effort || {};
+  if(eff.weeknight_minutes) parts.push(`weeknight ceiling: ~${eff.weeknight_minutes} min active`);
+  if(eff.notes) parts.push(`effort: ${eff.notes}`);
+  if(!parts.length && !tasteProfile.sensibility) return '';
+  return `\n\nTHEIR TASTE PROFILE (the axes underneath what they eat — reason from these to suggest things they haven't had, don't just restate them): ${parts.join('; ')}.` +
+    (tasteProfile.sensibility ? ` ${tasteProfile.sensibility}` : '');
+}
+
+function renderProfileView(){
+  const el = document.getElementById('profileBody');
+  if(!el) return;
+  const has = tasteProfile && (
+    Object.values(tasteProfile.axes||{}).some(v=>v && v.length) || tasteProfile.sensibility
+  );
+
+  if(profileBusy){
+    el.innerHTML = '<div class="taste-empty">Working through what you eat…</div>';
+    return;
+  }
+  if(!has){
+    el.innerHTML = `<div class="taste-empty">No profile yet. Claude will read your notes, saved recipes, and what you've actually cooked, then ask about anything it can't work out.</div>
+      <button class="wa-btn claude-btn" id="buildProfileBtn" style="margin-top:12px;">✨ Build my profile</button>`;
+    document.getElementById('buildProfileBtn').onclick = buildProfile;
+    return;
+  }
+
+  el.innerHTML = '';
+  Object.entries(AXIS_LABELS).forEach(([key, label])=>{
+    const wrap = document.createElement('div');
+    wrap.className = 'axis';
+    wrap.innerHTML = `<div class="axis-label">${label}</div>`;
+    const grid = document.createElement('div');
+    grid.className = 'axis-chips';
+    (tasteProfile.axes[key] || []).forEach(tag=>{
+      const chip = document.createElement('span');
+      chip.className = 'axis-chip';
+      chip.textContent = tag;
+      const x = document.createElement('span');
+      x.className = 'chip-x';
+      x.textContent = '✕';
+      x.onclick = ()=>{
+        tasteProfile.axes[key] = tasteProfile.axes[key].filter(t=>t!==tag);
+        saveTasteProfile(); renderProfileView();
+      };
+      chip.appendChild(x);
+      grid.appendChild(chip);
+    });
+    const add = document.createElement('span');
+    add.className = 'axis-chip add';
+    add.textContent = '+';
+    add.onclick = ()=>{
+      const inp = document.createElement('input');
+      inp.className = 'axis-input';
+      inp.placeholder = label.toLowerCase().replace(/s$/,'');
+      add.replaceWith(inp);
+      inp.focus();
+      const commit = ()=>{
+        const v = inp.value.trim().toLowerCase();
+        if(v && !tasteProfile.axes[key].includes(v)){
+          tasteProfile.axes[key].push(v); saveTasteProfile();
+        }
+        renderProfileView();
+      };
+      inp.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderProfileView(); };
+      inp.onblur = commit;
+    };
+    grid.appendChild(add);
+    wrap.appendChild(grid);
+    el.appendChild(wrap);
+  });
+
+  const eff = document.createElement('div');
+  eff.className = 'axis';
+  eff.innerHTML = `<div class="axis-label">Weeknight ceiling</div>
+    <div class="eff-row">
+      <input type="number" class="axis-input eff-min" min="5" max="180" step="5"
+             value="${tasteProfile.effort.weeknight_minutes || ''}" placeholder="30">
+      <span class="wa-hint">minutes of active cooking</span>
+    </div>
+    <input type="text" class="ask-input eff-notes" style="margin-top:8px;"
+           placeholder="anything else about effort" value="${escapeHtml(tasteProfile.effort.notes || '')}">`;
+  el.appendChild(eff);
+  eff.querySelector('.eff-min').onchange = (e)=>{
+    tasteProfile.effort.weeknight_minutes = e.target.value ? parseInt(e.target.value) : null;
+    saveTasteProfile();
+  };
+  eff.querySelector('.eff-notes').onchange = (e)=>{
+    tasteProfile.effort.notes = e.target.value; saveTasteProfile();
+  };
+
+  const sens = document.createElement('div');
+  sens.className = 'axis';
+  sens.innerHTML = `<div class="axis-label">Sensibility</div>
+    <textarea class="grocery-out sens-text" style="min-height:96px;font-size:13px;line-height:1.6;">${escapeHtml(tasteProfile.sensibility||'')}</textarea>`;
+  el.appendChild(sens);
+  sens.querySelector('.sens-text').onchange = (e)=>{
+    tasteProfile.sensibility = e.target.value; saveTasteProfile();
+  };
+
+  if(profileGaps.length){
+    const gaps = document.createElement('div');
+    gaps.className = 'axis gaps';
+    gaps.id = 'profileGaps';
+    gaps.innerHTML = `<div class="axis-label">A few things Claude couldn't work out</div>` +
+      profileGaps.map(g=>`<div class="gap">
+          <div class="gap-q">${escapeHtml(g.question)}</div>
+          <div class="gap-why">${escapeHtml(g.why)}</div>
+          <input type="text" class="ask-input gap-a" placeholder="your answer">
+        </div>`).join('') +
+      `<button class="wa-btn claude-btn" id="gapSubmit" style="margin-top:4px;">✨ Update profile</button>`;
+    el.appendChild(gaps);
+    document.getElementById('gapSubmit').onclick = submitGapAnswers;
+  }
+
+  const foot = document.createElement('div');
+  foot.className = 'profile-foot';
+  const rebuild = document.createElement('button');
+  rebuild.className = 'wa-btn';
+  rebuild.textContent = '✨ Rebuild from scratch';
+  rebuild.onclick = buildProfile;
+  foot.appendChild(rebuild);
+  if(tasteProfile.updated_at){
+    const when = document.createElement('span');
+    when.className = 'wa-hint';
+    const d = new Date(tasteProfile.updated_at);
+    when.textContent = 'Updated ' + d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    foot.appendChild(when);
+  }
+  el.appendChild(foot);
+}
+
 // ---------- CUSTOM ITEMS ----------
 // PROTEINS / BREAKFAST / STOCK_ITEMS above are the starting set. Anything you
 // add lives here instead, so the lists can grow without editing the page.
@@ -2152,7 +2546,7 @@ function addRecipeToPlan(recipe){
 }
 
 // ---------- DRAWER ----------
-const VIEW_TITLES = { menu:'Menu', taste:'Taste notes', chat:'Chat', history:'Past weeks', recipes:'Saved recipes' };
+const VIEW_TITLES = { menu:'Menu', taste:'Taste profile', chat:'Chat', history:'Past weeks', recipes:'Saved recipes' };
 const drawer = document.getElementById('drawer');
 const scrim = document.getElementById('scrim');
 const meatball = document.getElementById('meatball');
@@ -2167,7 +2561,7 @@ function showView(name){
   document.querySelector('.drawer-body').scrollTop = 0;
   if(name === 'recipes' && savedRecipes === null) loadSavedRecipes();
   if(name === 'history') renderHistoryView();
-  if(name === 'taste') setTimeout(()=> document.getElementById('taste-input').focus(), 220);
+  if(name === 'taste') renderProfileView();
 }
 
 function openDrawer(){
@@ -2212,6 +2606,7 @@ async function init(){
   try { await loadCustomCombos(); } catch(e){ console.warn('Custom combos failed to load:', e); }
   try { await loadWeek(); } catch(e){ console.warn('Week failed to load:', e); remoteWeekOk = false; }
   try { await loadHistory(); } catch(e){ console.warn('History failed to load:', e); }
+  try { await loadTasteProfile(); } catch(e){ console.warn('Taste profile failed to load:', e); }
   hydrated = true;                // saving is armed only after the load settles
   renderAll();
   loadTasteNotes().catch(e=> console.warn('Taste notes failed to load:', e));

@@ -105,3 +105,36 @@ do $$ begin
   create policy food_custom_items_update on public.food_custom_items
     for update to anon, authenticated using (true) with check (true);
 exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------------------
+-- 4. food_taste_profile — the abstraction layer over taste notes.
+--    Notes are instances ("liked that Cajun shrimp pasta"); this is the axes
+--    underneath them (cuisine: Cajun, format: pasta, flavor: heat + butter).
+--    "He likes X so maybe Y" needs the axes, not the instances.
+--    Single row by design — one person, one profile.
+-- ---------------------------------------------------------------------------
+create table if not exists public.food_taste_profile (
+  id           int primary key default 1 check (id = 1),
+  axes         jsonb       not null default '{}'::jsonb,  -- {flavors:[],cuisines:[],formats:[],textures:[]}
+  effort       jsonb       not null default '{}'::jsonb,  -- {weeknight_minutes:int, notes:text}
+  sensibility  text,                                      -- the nuance tags can't hold
+  source_stamp jsonb       not null default '{}'::jsonb,  -- what it was last built from
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.food_taste_profile enable row level security;
+
+do $$ begin
+  create policy food_taste_profile_select on public.food_taste_profile
+    for select to anon, authenticated using (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_taste_profile_insert on public.food_taste_profile
+    for insert to anon, authenticated with check (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_taste_profile_update on public.food_taste_profile
+    for update to anon, authenticated using (true) with check (true);
+exception when duplicate_object then null; end $$;

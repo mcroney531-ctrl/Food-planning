@@ -397,6 +397,14 @@
   }
   .axis-chip.avoid .chip-x{ color:#B4232C; opacity:0.7; }
   .axis-chip.avoid.add{ border-color:#FCA5A5; color:#B4232C; }
+  .axis-chip.prefernot{
+    background:#FBEBD8;
+    border-color:#E8C88A;
+    color:var(--amber);
+  }
+  .axis-chip.prefernot .chip-x{ color:var(--amber); opacity:0.7; }
+  .axis-chip.prefernot.add{ border-color:#E8C88A; color:var(--amber); }
+  .axis-chip .tag-text{ cursor:pointer; }
   .eff-row{ display:flex; align-items:center; gap:9px; }
   .eff-row .axis-input{ width:74px; text-align:center; }
   .profile-divider{
@@ -446,6 +454,35 @@
     font-size:12px;
     color:var(--text);
   }
+  .hist-days{ display:flex; flex-direction:column; gap:6px; }
+  .hist-day-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:6px 0;
+  }
+  .hd-day{
+    font-size:10.5px;
+    font-weight:700;
+    letter-spacing:0.5px;
+    color:var(--muted);
+    width:32px;
+    flex-shrink:0;
+  }
+  .hd-meal{ flex:1; font-size:13px; color:var(--text); }
+  .hd-rate{ display:flex; gap:2px; flex-shrink:0; }
+  .rate-btn{
+    width:28px; height:28px;
+    border-radius:8px;
+    border:1px solid var(--line);
+    background:#fff;
+    font-size:13px;
+    cursor:pointer;
+    opacity:0.45;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .rate-btn.up.on{ opacity:1; background:#EAF6EE; border-color:#B7DBC3; }
+  .rate-btn.down.on{ opacity:1; background:#FEF2F2; border-color:#FCA5A5; }
 
   .chip.stock{
     background:#EAF3ED;
@@ -1673,10 +1710,25 @@ let profileGaps = [];      // questions Claude couldn't infer, awaiting answers
 let profileBusy = false;
 
 function emptyProfile(){
-  return { axes:{ flavors:[], cuisines:[], formats:[], textures:[] },
-           avoid:[],   // explicit dislikes — user-asserted only, never model-inferred
-           effort:{ weeknight_minutes:null, notes:'' },
+  return { axes:{ flavors:[], cuisines:[], formats:[], textures:[] },  // each entry {tag, reason}
+           avoid:[],       // explicit hard dislikes — user-asserted only, never model-inferred
+           prefer_not:[],  // soft dislikes — deprioritize, don't hard-exclude — also user-asserted only
+           effort:{ weeknight_minutes:null, equipment:[], avoid_methods:[], notes:'' },
            sensibility:'', updated_at:null };
+}
+
+// Older saved profiles have plain-string axis tags and are missing the newer
+// fields entirely. Bring anything loaded up to the current shape so the
+// renderer never has to guess what it's holding.
+function normalizeProfile(p){
+  Object.keys(AXIS_LABELS).forEach(k=>{
+    p.axes[k] = (p.axes[k]||[]).map(t=> typeof t === 'string' ? { tag:t, reason:'From an earlier profile build.' } : t);
+  });
+  if(!p.prefer_not) p.prefer_not = [];
+  if(!p.effort) p.effort = {};
+  if(!p.effort.equipment) p.effort.equipment = [];
+  if(!p.effort.avoid_methods) p.effort.avoid_methods = [];
+  return p;
 }
 
 async function loadTasteProfile(){
@@ -1685,17 +1737,17 @@ async function loadTasteProfile(){
   if(!error){
     if(data && (!tasteProfile || new Date(data.updated_at||0) >= new Date(tasteProfile.updated_at||0))){
       // Remote wins only when it's actually newer — same lesson as custom items.
-      tasteProfile = { axes:data.axes||{}, avoid:data.avoid||[], effort:data.effort||{}, sensibility:data.sensibility||'', updated_at:data.updated_at };
+      tasteProfile = { axes:data.axes||{}, avoid:data.avoid||[], prefer_not:data.prefer_not||[], effort:data.effort||{}, sensibility:data.sensibility||'', updated_at:data.updated_at };
       lsSet(LS_PROFILE, tasteProfile);
     } else if(tasteProfile && !data){
       // Built before the table existed: push it up instead of stranding it.
       sb.from('food_taste_profile').upsert({
-        id:1, axes:tasteProfile.axes, avoid:tasteProfile.avoid||[], effort:tasteProfile.effort,
+        id:1, axes:tasteProfile.axes, avoid:tasteProfile.avoid||[], prefer_not:tasteProfile.prefer_not||[], effort:tasteProfile.effort,
         sensibility:tasteProfile.sensibility, updated_at:tasteProfile.updated_at || new Date().toISOString(),
       }, { onConflict:'id' }).then(({ error:e })=>{ if(e) console.warn('Profile backfill failed:', e.message); });
     }
   }
-  if(tasteProfile) tasteProfile = Object.assign(emptyProfile(), tasteProfile);
+  if(tasteProfile) tasteProfile = normalizeProfile(Object.assign(emptyProfile(), tasteProfile));
 }
 
 async function saveTasteProfile(){
@@ -1703,7 +1755,7 @@ async function saveTasteProfile(){
   tasteProfile.updated_at = new Date().toISOString();
   lsSet(LS_PROFILE, tasteProfile);
   const { error } = await sb.from('food_taste_profile').upsert({
-    id:1, axes:tasteProfile.axes, avoid:tasteProfile.avoid||[], effort:tasteProfile.effort,
+    id:1, axes:tasteProfile.axes, avoid:tasteProfile.avoid||[], prefer_not:tasteProfile.prefer_not||[], effort:tasteProfile.effort,
     sensibility:tasteProfile.sensibility, updated_at:tasteProfile.updated_at,
   }, { onConflict:'id' });
   if(error) console.warn('Profile not synced:', error.message);
@@ -1711,29 +1763,42 @@ async function saveTasteProfile(){
 
 // Everything the profile can be inferred from, in one place.
 function profileSignals(){
-  const cooked = [];
+  const cooked = [], liked = [], disliked = [];
   recentWeeks.forEach(w=>{
-    Object.values(w.day_plan || {}).forEach(m=>{ if(m) cooked.push(m); });
+    const ratings = w.ratings || {};
+    Object.entries(w.day_plan || {}).forEach(([day, m])=>{
+      if(!m) return;
+      cooked.push(m);
+      if(ratings[day] === 'up') liked.push(m);
+      if(ratings[day] === 'down') disliked.push(m);
+    });
   });
   return {
     notes: tasteNotes.map(n=>n.note),
     saved: foodLogItems.map(i=>`${i.title} (${i.category})`),
-    cooked,
+    cooked, liked, disliked,
     current: availableCombos().map(c=>c.combo),
     avoid: (tasteProfile && tasteProfile.avoid) || [],
+    preferNot: (tasteProfile && tasteProfile.prefer_not) || [],
   };
 }
 
+const TAG_ITEM = {
+  type:'object',
+  properties:{ tag:{type:'string'}, reason:{type:'string'} },
+  required:['tag','reason'],
+  additionalProperties:false
+};
 const PROFILE_SCHEMA = {
   type:'object',
   properties:{
     axes:{
       type:'object',
       properties:{
-        flavors:{ type:'array', items:{type:'string'} },
-        cuisines:{ type:'array', items:{type:'string'} },
-        formats:{ type:'array', items:{type:'string'} },
-        textures:{ type:'array', items:{type:'string'} },
+        flavors:{ type:'array', items:TAG_ITEM },
+        cuisines:{ type:'array', items:TAG_ITEM },
+        formats:{ type:'array', items:TAG_ITEM },
+        textures:{ type:'array', items:TAG_ITEM },
       },
       required:['flavors','cuisines','formats','textures'],
       additionalProperties:false
@@ -1742,9 +1807,11 @@ const PROFILE_SCHEMA = {
       type:'object',
       properties:{
         weeknight_minutes:{ type:['integer','null'] },
+        equipment:{ type:'array', items:{type:'string'} },
+        avoid_methods:{ type:'array', items:{type:'string'} },
         notes:{ type:'string' }
       },
-      required:['weeknight_minutes','notes'],
+      required:['weeknight_minutes','equipment','avoid_methods','notes'],
       additionalProperties:false
     },
     sensibility:{ type:'string' },
@@ -1781,7 +1848,7 @@ async function callProfileModel(userText){
       max_tokens:4000,
       thinking:{ type:'adaptive' },
       output_config:{ effort:'medium', format:{ type:'json_schema', schema:PROFILE_SCHEMA } },
-      system:"You build a compact taste profile for one person's weeknight cooking. Infer the axes underneath what they eat, not a restatement of it: flavours they gravitate to, cuisines, the formats they prefer (bowls, handhelds, sheet-pan, one-pot), textures. Keep every tag 1-3 words and lowercase. Aim for 3-6 tags per axis — a long list is the same as no signal. The sensibility field is 2-3 sentences of the nuance tags can't hold: how they like to cook and eat, in plain language. For gaps, ask only what you genuinely could not infer and that would change future suggestions; each needs a short 'why'. Ask at most 6, fewer if the evidence is good.",
+      system:"You build a compact taste profile for one person's weeknight cooking. Infer the axes underneath what they eat, not a restatement of it: flavours they gravitate to, cuisines, the formats they prefer (bowls, handhelds, sheet-pan, one-pot), textures. Keep every tag 1-3 words and lowercase. Each tag also needs a reason under 12 words citing the specific evidence it came from (a note, a saved recipe, something rated up or cooked more than once) — vague reasons like 'seems likely' aren't good enough, skip the tag instead. Aim for 3-6 tags per axis — a long list is the same as no signal. For effort, infer weeknight_minutes only with real evidence; list equipment they clearly have or like using (air fryer, instant pot) and cooking methods they seem to avoid (deep frying, sous vide) — leave both empty rather than guessing. The sensibility field is 2-3 sentences of the nuance tags can't hold: how they like to cook and eat, in plain language. Meals explicitly rated up or down are the strongest signal available — weight them over everything else, and never tag an axis that a disliked meal would contradict. For gaps, ask only what you genuinely could not infer and that would change future suggestions; each needs a short 'why'. Ask at most 6, fewer if the evidence is good.",
       messages:[{ role:'user', content:userText }]
     })
   });
@@ -1805,16 +1872,19 @@ async function buildProfile(){
   try {
     const text = [
       'Build a taste profile from the evidence below.',
-      s.notes.length   ? `\nTheir own notes about what they like:\n- ${s.notes.join('\n- ')}` : '',
-      s.saved.length   ? `\nRecipes they saved (interest, not necessarily cooked):\n- ${s.saved.join('\n- ')}` : '',
-      s.cooked.length  ? `\nMeals they actually put on a day in past weeks (stronger signal than saves):\n- ${s.cooked.join('\n- ')}` : '',
-      s.current.length ? `\nCurrently tapped as an available swap direction this week (weakest signal — often just an option left checked while exploring, not necessarily wanted; only reflect this in the profile if corroborated by notes, saves, or something actually cooked):\n- ${s.current.join('\n- ')}` : '',
-      s.avoid.length   ? `\nThings they've explicitly said to avoid — hard exclusions, never infer a matching flavor/cuisine/format tag from these:\n- ${s.avoid.join('\n- ')}` : '',
+      s.liked.length    ? `\nMeals explicitly rated as liked (strongest signal — weight heavily):\n- ${s.liked.join('\n- ')}` : '',
+      s.disliked.length ? `\nMeals explicitly rated as disliked (strongest negative signal — never tag an axis one of these would contradict):\n- ${s.disliked.join('\n- ')}` : '',
+      s.notes.length    ? `\nTheir own notes about what they like:\n- ${s.notes.join('\n- ')}` : '',
+      s.saved.length    ? `\nRecipes they saved (interest, not necessarily cooked):\n- ${s.saved.join('\n- ')}` : '',
+      s.cooked.length   ? `\nMeals they actually put on a day in past weeks, unrated (weaker than an explicit rating, stronger than a save):\n- ${s.cooked.join('\n- ')}` : '',
+      s.current.length  ? `\nCurrently tapped as an available swap direction this week (weakest signal — often just an option left checked while exploring, not necessarily wanted; only reflect this in the profile if corroborated by notes, saves, or something actually cooked):\n- ${s.current.join('\n- ')}` : '',
+      s.avoid.length     ? `\nThings they've explicitly said to avoid — hard exclusions, never infer a matching flavor/cuisine/format tag from these:\n- ${s.avoid.join('\n- ')}` : '',
+      s.preferNot.length ? `\nThings they'd rather not have — softer than avoid, but still never infer a matching flavor/cuisine/format tag from these:\n- ${s.preferNot.join('\n- ')}` : '',
     ].filter(Boolean).join('\n');
     const out = await callProfileModel(text);
     if(!out) return;
     tasteProfile = Object.assign(emptyProfile(), {
-      axes:out.axes, avoid:tasteProfile.avoid||[], effort:out.effort, sensibility:out.sensibility,
+      axes:out.axes, avoid:tasteProfile.avoid||[], prefer_not:tasteProfile.prefer_not||[], effort:out.effort, sensibility:out.sensibility,
     });
     profileGaps = out.gaps || [];
     await saveTasteProfile();
@@ -1840,13 +1910,14 @@ async function submitGapAnswers(){
       'Revise this taste profile using the answers below. Keep what still holds; change what the answers contradict.',
       `\nCurrent profile:\n${JSON.stringify({ axes:tasteProfile.axes, effort:tasteProfile.effort, sensibility:tasteProfile.sensibility })}`,
       tasteProfile.avoid && tasteProfile.avoid.length ? `\nHard exclusions, never contradict these:\n- ${tasteProfile.avoid.join('\n- ')}` : '',
+      tasteProfile.prefer_not && tasteProfile.prefer_not.length ? `\nSoft exclusions, never contradict these either:\n- ${tasteProfile.prefer_not.join('\n- ')}` : '',
       `\nTheir answers:\n${answers.join('\n\n')}`,
       '\nReturn any remaining gaps only if something important is still genuinely unknown — an empty list is the right answer if the picture is good enough.',
     ].filter(Boolean).join('\n');
     const out = await callProfileModel(text);
     if(!out) return;
     tasteProfile = Object.assign(emptyProfile(), {
-      axes:out.axes, avoid:tasteProfile.avoid||[], effort:out.effort, sensibility:out.sensibility,
+      axes:out.axes, avoid:tasteProfile.avoid||[], prefer_not:tasteProfile.prefer_not||[], effort:out.effort, sensibility:out.sensibility,
     });
     profileGaps = out.gaps || [];
     await saveTasteProfile();
@@ -1866,12 +1937,15 @@ function profileContext(){
   const a = tasteProfile.axes || {};
   const parts = Object.keys(AXIS_LABELS)
     .filter(k=> (a[k]||[]).length)
-    .map(k=> `${AXIS_LABELS[k].toLowerCase()}: ${a[k].join(', ')}`);
+    .map(k=> `${AXIS_LABELS[k].toLowerCase()}: ${a[k].map(t=>t.tag).join(', ')}`);
   const eff = tasteProfile.effort || {};
   if(eff.weeknight_minutes) parts.push(`weeknight ceiling: ~${eff.weeknight_minutes} min active`);
+  if(eff.equipment && eff.equipment.length) parts.push(`equipment on hand: ${eff.equipment.join(', ')}`);
+  if(eff.avoid_methods && eff.avoid_methods.length) parts.push(`avoid these cooking methods: ${eff.avoid_methods.join(', ')}`);
   if(eff.notes) parts.push(`effort: ${eff.notes}`);
   const avoid = tasteProfile.avoid || [];
-  if(!parts.length && !tasteProfile.sensibility && !avoid.length) return '';
+  const preferNot = tasteProfile.prefer_not || [];
+  if(!parts.length && !tasteProfile.sensibility && !avoid.length && !preferNot.length) return '';
   let out = '';
   if(parts.length || tasteProfile.sensibility){
     out += `\n\nTHEIR TASTE PROFILE (the axes underneath what they eat — reason from these to suggest things they haven't had, don't just restate them): ${parts.join('; ')}.` +
@@ -1880,7 +1954,52 @@ function profileContext(){
   if(avoid.length){
     out += `\n\nTHINGS TO NEVER SUGGEST (explicitly disliked, hard exclusions): ${avoid.join(', ')}.`;
   }
+  if(preferNot.length){
+    out += `\n\nTHINGS THEY'D RATHER NOT HAVE (soft — deprioritize, don't hard-exclude; still fine if it's genuinely the best fit): ${preferNot.join(', ')}.`;
+  }
   return out;
+}
+
+// Generic add/remove chip list for anything that isn't one of the four
+// inferred axes: avoid, prefer_not, equipment, avoid_methods. `list` is
+// mutated in place via `onChange(nextArray)`, which owns saving.
+function renderChipList(el, label, list, placeholder, extraClass, onChange){
+  const wrap = document.createElement('div');
+  wrap.className = 'axis';
+  wrap.innerHTML = `<div class="axis-label">${label}</div>`;
+  const grid = document.createElement('div');
+  grid.className = 'axis-chips';
+  list.forEach(item=>{
+    const chip = document.createElement('span');
+    chip.className = 'axis-chip' + (extraClass ? ' '+extraClass : '');
+    chip.textContent = item;
+    const x = document.createElement('span');
+    x.className = 'chip-x';
+    x.textContent = '✕';
+    x.onclick = ()=>{ onChange(list.filter(t=>t!==item)); renderProfileView(); };
+    chip.appendChild(x);
+    grid.appendChild(chip);
+  });
+  const add = document.createElement('span');
+  add.className = 'axis-chip add' + (extraClass ? ' '+extraClass : '');
+  add.textContent = '+';
+  add.onclick = ()=>{
+    const inp = document.createElement('input');
+    inp.className = 'axis-input';
+    inp.placeholder = placeholder;
+    add.replaceWith(inp);
+    inp.focus();
+    const commit = ()=>{
+      const v = inp.value.trim();
+      if(v && !list.some(t=>t.toLowerCase()===v.toLowerCase())) onChange([...list, v]);
+      renderProfileView();
+    };
+    inp.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderProfileView(); };
+    inp.onblur = commit;
+  };
+  grid.appendChild(add);
+  wrap.appendChild(grid);
+  el.appendChild(wrap);
 }
 
 function renderProfileView(){
@@ -1888,7 +2007,7 @@ function renderProfileView(){
   if(!el) return;
   if(!tasteProfile) tasteProfile = emptyProfile();
   const has = Object.values(tasteProfile.axes||{}).some(v=>v && v.length) || tasteProfile.sensibility ||
-    (tasteProfile.avoid && tasteProfile.avoid.length);
+    (tasteProfile.avoid && tasteProfile.avoid.length) || (tasteProfile.prefer_not && tasteProfile.prefer_not.length);
 
   if(profileBusy){
     el.innerHTML = '<div class="taste-empty">Working through what you eat…</div>';
@@ -1908,15 +2027,20 @@ function renderProfileView(){
       wrap.innerHTML = `<div class="axis-label">${label}</div>`;
       const grid = document.createElement('div');
       grid.className = 'axis-chips';
-      (tasteProfile.axes[key] || []).forEach(tag=>{
+      (tasteProfile.axes[key] || []).forEach(item=>{
         const chip = document.createElement('span');
         chip.className = 'axis-chip';
-        chip.textContent = tag;
+        const tagText = document.createElement('span');
+        tagText.className = 'tag-text';
+        tagText.textContent = item.tag;
+        tagText.title = item.reason || '';
+        tagText.onclick = ()=> toast(item.reason || 'Added manually.');
+        chip.appendChild(tagText);
         const x = document.createElement('span');
         x.className = 'chip-x';
         x.textContent = '✕';
         x.onclick = ()=>{
-          tasteProfile.axes[key] = tasteProfile.axes[key].filter(t=>t!==tag);
+          tasteProfile.axes[key] = tasteProfile.axes[key].filter(t=>t.tag!==item.tag);
           saveTasteProfile(); renderProfileView();
         };
         chip.appendChild(x);
@@ -1933,8 +2057,8 @@ function renderProfileView(){
         inp.focus();
         const commit = ()=>{
           const v = inp.value.trim().toLowerCase();
-          if(v && !tasteProfile.axes[key].includes(v)){
-            tasteProfile.axes[key].push(v); saveTasteProfile();
+          if(v && !tasteProfile.axes[key].some(t=>t.tag===v)){
+            tasteProfile.axes[key].push({ tag:v, reason:'Added manually.' }); saveTasteProfile();
           }
           renderProfileView();
         };
@@ -1947,49 +2071,15 @@ function renderProfileView(){
     });
   }
 
-  // Avoid is always addable — it's user-asserted, doesn't need a built profile.
+  // Avoid and Prefer not are always addable — user-asserted, don't need a built profile.
   if(!tasteProfile.avoid) tasteProfile.avoid = [];
-  const avoidWrap = document.createElement('div');
-  avoidWrap.className = 'axis';
-  avoidWrap.innerHTML = `<div class="axis-label">Avoid</div>`;
-  const avoidGrid = document.createElement('div');
-  avoidGrid.className = 'axis-chips';
-  tasteProfile.avoid.forEach(item=>{
-    const chip = document.createElement('span');
-    chip.className = 'axis-chip avoid';
-    chip.textContent = item;
-    const x = document.createElement('span');
-    x.className = 'chip-x';
-    x.textContent = '✕';
-    x.onclick = ()=>{
-      tasteProfile.avoid = tasteProfile.avoid.filter(t=>t!==item);
-      saveTasteProfile(); renderProfileView();
-    };
-    chip.appendChild(x);
-    avoidGrid.appendChild(chip);
+  if(!tasteProfile.prefer_not) tasteProfile.prefer_not = [];
+  renderChipList(el, 'Avoid', tasteProfile.avoid, 'e.g. stuffed peppers', 'avoid', (next)=>{
+    tasteProfile.avoid = next; saveTasteProfile();
   });
-  const avoidAdd = document.createElement('span');
-  avoidAdd.className = 'axis-chip avoid add';
-  avoidAdd.textContent = '+';
-  avoidAdd.onclick = ()=>{
-    const inp = document.createElement('input');
-    inp.className = 'axis-input';
-    inp.placeholder = 'e.g. stuffed peppers';
-    avoidAdd.replaceWith(inp);
-    inp.focus();
-    const commit = ()=>{
-      const v = inp.value.trim();
-      if(v && !tasteProfile.avoid.some(t=>t.toLowerCase()===v.toLowerCase())){
-        tasteProfile.avoid.push(v); saveTasteProfile();
-      }
-      renderProfileView();
-    };
-    inp.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderProfileView(); };
-    inp.onblur = commit;
-  };
-  avoidGrid.appendChild(avoidAdd);
-  avoidWrap.appendChild(avoidGrid);
-  el.appendChild(avoidWrap);
+  renderChipList(el, 'Prefer not', tasteProfile.prefer_not, 'e.g. very spicy', 'prefernot', (next)=>{
+    tasteProfile.prefer_not = next; saveTasteProfile();
+  });
 
   if(!has) return; // nothing built yet — effort/sensibility/gaps need a real profile
 
@@ -2011,6 +2101,15 @@ function renderProfileView(){
   eff.querySelector('.eff-notes').onchange = (e)=>{
     tasteProfile.effort.notes = e.target.value; saveTasteProfile();
   };
+
+  if(!tasteProfile.effort.equipment) tasteProfile.effort.equipment = [];
+  if(!tasteProfile.effort.avoid_methods) tasteProfile.effort.avoid_methods = [];
+  renderChipList(el, 'Equipment', tasteProfile.effort.equipment, 'e.g. air fryer', '', (next)=>{
+    tasteProfile.effort.equipment = next; saveTasteProfile();
+  });
+  renderChipList(el, 'Avoid these methods', tasteProfile.effort.avoid_methods, 'e.g. deep frying', '', (next)=>{
+    tasteProfile.effort.avoid_methods = next; saveTasteProfile();
+  });
 
   const sens = document.createElement('div');
   sens.className = 'axis';
@@ -2233,18 +2332,63 @@ function renderHistoryView(){
     el.innerHTML = '<div class="drawer-empty"><span class="de-icon">🗓️</span>No past weeks yet. Once you plan a couple, they show up here and start steering Surprise me away from repeats.</div>';
     return;
   }
-  el.innerHTML = recentWeeks.map(w=>{
+  el.innerHTML = '';
+  recentWeeks.forEach(w=>{
+    const dayEntries = Object.entries(w.day_plan || {}).filter(([,m])=>m);
     const meals = Object.values(w.combos || {}).flat();
     const ago = weeksBetween(weekStart(), w.week_start);
-    const date = new Date(w.week_start + 'T00:00:00')
-      .toLocaleDateString(undefined, { month:'short', day:'numeric' });
-    return `<div class="hist-week">
-      <div class="hist-head"><span class="hist-date">Week of ${date}</span><span class="hist-ago">${ago} wk${ago===1?'':'s'} ago</span></div>
-      ${meals.length
-        ? `<div class="hist-meals">${meals.map(m=>`<span class="hist-meal">${escapeHtml(m)}</span>`).join('')}</div>`
-        : '<div class="taste-empty" style="padding:6px 0;text-align:left;">Nothing planned that week.</div>'}
-    </div>`;
-  }).join('');
+    const date = new Date(w.week_start + 'T00:00:00').toLocaleDateString(undefined, { month:'short', day:'numeric' });
+
+    const wrap = document.createElement('div');
+    wrap.className = 'hist-week';
+    const head = document.createElement('div');
+    head.className = 'hist-head';
+    head.innerHTML = `<span class="hist-date">Week of ${date}</span><span class="hist-ago">${ago} wk${ago===1?'':'s'} ago</span>`;
+    wrap.appendChild(head);
+
+    if(dayEntries.length){
+      // Rated by day, not just by combo — a rating means "this day, this meal,"
+      // matching exactly what profileSignals() reads back out as liked/disliked.
+      const list = document.createElement('div');
+      list.className = 'hist-days';
+      dayEntries.forEach(([day, meal])=>{
+        const current = (w.ratings || {})[day] || null;
+        const row = document.createElement('div');
+        row.className = 'hist-day-row';
+        row.innerHTML = `
+          <span class="hd-day">${day.charAt(0)+day.slice(1).toLowerCase()}</span>
+          <span class="hd-meal">${escapeHtml(meal)}</span>
+          <span class="hd-rate">
+            <button class="rate-btn up${current==='up'?' on':''}" aria-label="Liked it">👍</button>
+            <button class="rate-btn down${current==='down'?' on':''}" aria-label="Didn't like it">👎</button>
+          </span>`;
+        row.querySelector('.rate-btn.up').onclick = ()=> rateMeal(w, day, current==='up' ? null : 'up');
+        row.querySelector('.rate-btn.down').onclick = ()=> rateMeal(w, day, current==='down' ? null : 'down');
+        list.appendChild(row);
+      });
+      wrap.appendChild(list);
+    } else if(meals.length){
+      const flat = document.createElement('div');
+      flat.className = 'hist-meals';
+      flat.innerHTML = meals.map(m=>`<span class="hist-meal">${escapeHtml(m)}</span>`).join('');
+      wrap.appendChild(flat);
+    } else {
+      const none = document.createElement('div');
+      none.className = 'taste-empty';
+      none.style.cssText = 'padding:6px 0;text-align:left;';
+      none.textContent = 'Nothing planned that week.';
+      wrap.appendChild(none);
+    }
+    el.appendChild(wrap);
+  });
+}
+
+async function rateMeal(week, day, rating){
+  week.ratings = week.ratings || {};
+  if(rating) week.ratings[day] = rating; else delete week.ratings[day];
+  renderHistoryView();
+  const { error } = await sb.from('food_week_plans').update({ ratings: week.ratings }).eq('week_start', week.week_start);
+  if(error){ console.warn('Rating not synced:', error.message); toast('Could not save rating — check your connection.', 'error'); }
 }
 
 // ---------- SHOPPING LIST ----------

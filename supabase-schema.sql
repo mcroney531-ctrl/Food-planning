@@ -27,6 +27,14 @@ create table if not exists public.food_week_plans (
 alter table public.food_week_plans
   add column if not exists grocery jsonb not null default '{}'::jsonb;
 
+-- Added later; safe to run on a table that already exists.
+-- Per-day outcome ratings — { "MON": "up"|"down", ... }. This is the ground
+-- truth the taste profile was missing: a day showing up in day_plan only ever
+-- meant "assigned," never "liked." Rated meals are the strongest signal
+-- profileSignals() feeds into profile-building, ahead of notes or saves.
+alter table public.food_week_plans
+  add column if not exists ratings jsonb not null default '{}'::jsonb;
+
 alter table public.food_week_plans enable row level security;
 
 do $$ begin
@@ -147,3 +155,17 @@ exception when duplicate_object then null; end $$;
 -- get contradicted by a false "you like this" reaching the profile axes.
 alter table public.food_taste_profile
   add column if not exists avoid jsonb not null default '[]'::jsonb;
+
+-- Added later; safe to run on a table that already exists.
+-- Soft dislikes — same user-asserted-only posture as avoid, but deprioritize
+-- rather than hard-exclude. Client-side pool filtering (Surprise Me, etc.)
+-- only ever applies to `avoid`; `prefer_not` is prompt-only signal.
+--
+-- Note: this migration predates a client-side reshape of `axes` — each tag
+-- moved from a plain string to {tag, reason}, so the model's inference is
+-- inspectable (tap a tag in the UI to see why it's there). That reshape
+-- lives entirely inside the existing `axes` jsonb column, no migration
+-- needed for it. Same story for `effort`, which gained `equipment` and
+-- `avoid_methods` keys — already flexible jsonb, nothing to alter.
+alter table public.food_taste_profile
+  add column if not exists prefer_not jsonb not null default '[]'::jsonb;

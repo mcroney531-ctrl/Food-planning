@@ -504,6 +504,7 @@
     white-space:nowrap;
   }
   .shuffle-btn:hover{ border-color:var(--periwinkle); }
+  .shuffle-btn.busy{ opacity:0.6; cursor:default; }
   .claude-btn{
     background:linear-gradient(135deg,#F5F0FF,#EDE7FA);
     border-color:#D9CCF5;
@@ -1086,6 +1087,7 @@ let dayPlan = {};          // 'MON' -> combo string (Sunday is the plan day)
 let selectedBreakfasts = new Set();
 let stockedItems = new Set();
 let activeChatProtein = null; // which protein's thread the Chat drawer view shows
+let surpriseBusy = new Set(); // protein ids currently waiting on a Surprise Me call
 let chatHistories = {}; // proteinId -> array of {role, content}
 let apiKey = null;
 try { apiKey = localStorage.getItem('sw_api_key'); } catch(e){}
@@ -1307,6 +1309,84 @@ async function sendChat(pid){
   }
 }
 
+// One-shot version of the chat brainstorm: no back-and-forth, just ask for a
+// couple of fresh ideas fitted to this protein + taste profile and drop them
+// straight onto the week. Accepted ideas become permanent combos (same as
+// accepting one from chat) so they're there next time, not just this week.
+async function surpriseMe(p){
+  if(surpriseBusy.has(p.id)) return;
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) return;
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+
+  surpriseBusy.add(p.id);
+  renderAll();
+
+  const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time (weight these heavily — this is their actual signal, not the existing combo list): ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
+  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals this person has separately saved to their food log (real signal about what they gravitate toward — use as inspiration for tone and direction, don't just repeat these as combo names or treat them as a menu to pull from): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const profileCtx = profileContext();
+  const historyCtx = historyContext();
+  const prompt_ = `Suggest exactly 2 specific new meal/combo ideas (2-6 words each) using ${p.name} as the base protein — fresh ideas that fit how this person actually eats, not already in their library. Existing combos already in their library for this protein (do not repeat these): ${p.combos.join(', ') || 'none yet'}.${profileCtx}${tasteContext}${foodLogContext}${historyCtx} Return only the idea names — no recipes, no explanation.`;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-5",
+        max_tokens: 1000,
+        thinking: { type: "adaptive" },
+        output_config: {
+          effort: "low",
+          format: {
+            type: "json_schema",
+            schema: {
+              type: "object",
+              properties: {
+                ideas: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 2 }
+              },
+              required: ["ideas"],
+              additionalProperties: false
+            }
+          }
+        },
+        messages: [{ role: "user", content: prompt_ }]
+      })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'API error');
+    if(data.stop_reason === 'refusal') throw new Error('the request was declined.');
+    const block = (data.content || []).find(b=>b.type==='text');
+    if(!block) throw new Error('empty response.');
+    let parsed;
+    try { parsed = JSON.parse(block.text); }
+    catch(e){ throw new Error('the response came back malformed. Try again.'); }
+    const ideas = (parsed.ideas || []).filter(Boolean);
+    if(!ideas.length) throw new Error('nothing came back.');
+
+    ideas.forEach(idea=>{
+      if(!p.combos.includes(idea)){
+        p.combos.push(idea);
+        saveCustomCombo(p.id, idea);
+      }
+    });
+    comboAssignments[p.id] = new Set(ideas);
+  } catch(err){
+    console.warn('Surprise me failed:', err);
+    toast('Could not get ideas — ' + (err.message || 'try again.'), 'error');
+  } finally {
+    surpriseBusy.delete(p.id);
+    renderAll();
+  }
+}
+
 // ---------- RENDER: week strip ----------
 // Every combo assigned to a selected protein, with the protein it came from.
 function availableCombos(){
@@ -1497,17 +1577,11 @@ function renderCombos(){
     const nameRow = document.createElement('div');
     nameRow.className = 'pname';
     nameRow.innerHTML = `<span class="pn">${p.name}</span> ${tagHtml}`;
+    const surpriseIsBusy = surpriseBusy.has(p.id);
     const shuffleBtn = document.createElement('span');
-    shuffleBtn.className = 'shuffle-btn';
-    shuffleBtn.textContent = '🎲 Surprise me';
-    shuffleBtn.onclick = ()=>{
-      const avoid = new Set((tasteProfile && tasteProfile.avoid) || []);
-      const pool = p.combos.filter(c=> !avoid.has(c));
-      // Don't strand someone who's avoided every option for this protein.
-      const from = pool.length ? pool : p.combos;
-      comboAssignments[p.id] = new Set(pickWithVariety([...from], Math.min(2, from.length)));
-      renderAll();
-    };
+    shuffleBtn.className = 'shuffle-btn claude-btn' + (surpriseIsBusy ? ' busy' : '');
+    shuffleBtn.textContent = surpriseIsBusy ? '✨ Thinking…' : '✨ Surprise me';
+    if(!surpriseIsBusy) shuffleBtn.onclick = ()=> surpriseMe(p);
     // Grouped so the pair wraps to a second line together instead of splitting
     const actions = document.createElement('div');
     actions.className = 'pactions';
@@ -2138,27 +2212,6 @@ async function loadHistory(){
   if(error){ console.warn('History unavailable:', error.message); return; }
   recentWeeks = data || [];
   computeRecency();
-}
-
-// Biased random rather than sorted: still a surprise, but one that leans hard
-// away from anything recent. Never-planned combos get the heaviest weight.
-function pickWithVariety(pool, n){
-  const items = pool.map(c=>{
-    // Linear, and unseen caps at 8. Squaring this made last week's dinner
-    // statistically impossible rather than merely unlikely — "surprise me"
-    // should still be able to surprise you with something you had recently.
-    const ago = Math.min(comboRecency.get(c) || 8, 8);
-    return { c, w: ago };
-  });
-  const picks = [];
-  while(picks.length < n && items.length){
-    const total = items.reduce((s,i)=> s + i.w, 0);
-    let r = Math.random() * total;
-    let idx = 0;
-    for(; idx < items.length - 1; idx++){ r -= items[idx].w; if(r <= 0) break; }
-    picks.push(items.splice(idx, 1)[0].c);
-  }
-  return picks;
 }
 
 function historyContext(){

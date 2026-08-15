@@ -140,3 +140,10 @@ do $$ begin
   create policy food_taste_profile_update on public.food_taste_profile
     for update to anon, authenticated using (true) with check (true);
 exception when duplicate_object then null; end $$;
+
+-- Added later; safe to run on a table that already exists.
+-- Explicit dislikes — user-asserted only, never model-inferred, so a weak
+-- positive signal (e.g. a combo tapped once but never actually cooked) can't
+-- get contradicted by a false "you like this" reaching the profile axes.
+alter table public.food_taste_profile
+  add column if not exists avoid jsonb not null default '[]'::jsonb;

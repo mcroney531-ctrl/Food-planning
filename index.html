@@ -390,6 +390,13 @@
     font-size:12.5px;
     width:130px;
   }
+  .axis-chip.avoid{
+    background:#FEF2F2;
+    border-color:#FCA5A5;
+    color:#B4232C;
+  }
+  .axis-chip.avoid .chip-x{ color:#B4232C; opacity:0.7; }
+  .axis-chip.avoid.add{ border-color:#FCA5A5; color:#B4232C; }
   .eff-row{ display:flex; align-items:center; gap:9px; }
   .eff-row .axis-input{ width:74px; text-align:center; }
   .profile-divider{
@@ -1494,7 +1501,11 @@ function renderCombos(){
     shuffleBtn.className = 'shuffle-btn';
     shuffleBtn.textContent = '🎲 Surprise me';
     shuffleBtn.onclick = ()=>{
-      comboAssignments[p.id] = new Set(pickWithVariety([...p.combos], Math.min(2, p.combos.length)));
+      const avoid = new Set((tasteProfile && tasteProfile.avoid) || []);
+      const pool = p.combos.filter(c=> !avoid.has(c));
+      // Don't strand someone who's avoided every option for this protein.
+      const from = pool.length ? pool : p.combos;
+      comboAssignments[p.id] = new Set(pickWithVariety([...from], Math.min(2, from.length)));
       renderAll();
     };
     // Grouped so the pair wraps to a second line together instead of splitting
@@ -1589,6 +1600,7 @@ let profileBusy = false;
 
 function emptyProfile(){
   return { axes:{ flavors:[], cuisines:[], formats:[], textures:[] },
+           avoid:[],   // explicit dislikes — user-asserted only, never model-inferred
            effort:{ weeknight_minutes:null, notes:'' },
            sensibility:'', updated_at:null };
 }
@@ -1599,12 +1611,12 @@ async function loadTasteProfile(){
   if(!error){
     if(data && (!tasteProfile || new Date(data.updated_at||0) >= new Date(tasteProfile.updated_at||0))){
       // Remote wins only when it's actually newer — same lesson as custom items.
-      tasteProfile = { axes:data.axes||{}, effort:data.effort||{}, sensibility:data.sensibility||'', updated_at:data.updated_at };
+      tasteProfile = { axes:data.axes||{}, avoid:data.avoid||[], effort:data.effort||{}, sensibility:data.sensibility||'', updated_at:data.updated_at };
       lsSet(LS_PROFILE, tasteProfile);
     } else if(tasteProfile && !data){
       // Built before the table existed: push it up instead of stranding it.
       sb.from('food_taste_profile').upsert({
-        id:1, axes:tasteProfile.axes, effort:tasteProfile.effort,
+        id:1, axes:tasteProfile.axes, avoid:tasteProfile.avoid||[], effort:tasteProfile.effort,
         sensibility:tasteProfile.sensibility, updated_at:tasteProfile.updated_at || new Date().toISOString(),
       }, { onConflict:'id' }).then(({ error:e })=>{ if(e) console.warn('Profile backfill failed:', e.message); });
     }
@@ -1617,7 +1629,7 @@ async function saveTasteProfile(){
   tasteProfile.updated_at = new Date().toISOString();
   lsSet(LS_PROFILE, tasteProfile);
   const { error } = await sb.from('food_taste_profile').upsert({
-    id:1, axes:tasteProfile.axes, effort:tasteProfile.effort,
+    id:1, axes:tasteProfile.axes, avoid:tasteProfile.avoid||[], effort:tasteProfile.effort,
     sensibility:tasteProfile.sensibility, updated_at:tasteProfile.updated_at,
   }, { onConflict:'id' });
   if(error) console.warn('Profile not synced:', error.message);
@@ -1634,6 +1646,7 @@ function profileSignals(){
     saved: foodLogItems.map(i=>`${i.title} (${i.category})`),
     cooked,
     current: availableCombos().map(c=>c.combo),
+    avoid: (tasteProfile && tasteProfile.avoid) || [],
   };
 }
 
@@ -1721,12 +1734,13 @@ async function buildProfile(){
       s.notes.length   ? `\nTheir own notes about what they like:\n- ${s.notes.join('\n- ')}` : '',
       s.saved.length   ? `\nRecipes they saved (interest, not necessarily cooked):\n- ${s.saved.join('\n- ')}` : '',
       s.cooked.length  ? `\nMeals they actually put on a day in past weeks (stronger signal than saves):\n- ${s.cooked.join('\n- ')}` : '',
-      s.current.length ? `\nOn this week's plan:\n- ${s.current.join('\n- ')}` : '',
+      s.current.length ? `\nCurrently tapped as an available swap direction this week (weakest signal — often just an option left checked while exploring, not necessarily wanted; only reflect this in the profile if corroborated by notes, saves, or something actually cooked):\n- ${s.current.join('\n- ')}` : '',
+      s.avoid.length   ? `\nThings they've explicitly said to avoid — hard exclusions, never infer a matching flavor/cuisine/format tag from these:\n- ${s.avoid.join('\n- ')}` : '',
     ].filter(Boolean).join('\n');
     const out = await callProfileModel(text);
     if(!out) return;
     tasteProfile = Object.assign(emptyProfile(), {
-      axes:out.axes, effort:out.effort, sensibility:out.sensibility,
+      axes:out.axes, avoid:tasteProfile.avoid||[], effort:out.effort, sensibility:out.sensibility,
     });
     profileGaps = out.gaps || [];
     await saveTasteProfile();
@@ -1751,13 +1765,14 @@ async function submitGapAnswers(){
     const text = [
       'Revise this taste profile using the answers below. Keep what still holds; change what the answers contradict.',
       `\nCurrent profile:\n${JSON.stringify({ axes:tasteProfile.axes, effort:tasteProfile.effort, sensibility:tasteProfile.sensibility })}`,
+      tasteProfile.avoid && tasteProfile.avoid.length ? `\nHard exclusions, never contradict these:\n- ${tasteProfile.avoid.join('\n- ')}` : '',
       `\nTheir answers:\n${answers.join('\n\n')}`,
       '\nReturn any remaining gaps only if something important is still genuinely unknown — an empty list is the right answer if the picture is good enough.',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
     const out = await callProfileModel(text);
     if(!out) return;
     tasteProfile = Object.assign(emptyProfile(), {
-      axes:out.axes, effort:out.effort, sensibility:out.sensibility,
+      axes:out.axes, avoid:tasteProfile.avoid||[], effort:out.effort, sensibility:out.sensibility,
     });
     profileGaps = out.gaps || [];
     await saveTasteProfile();
@@ -1781,73 +1796,128 @@ function profileContext(){
   const eff = tasteProfile.effort || {};
   if(eff.weeknight_minutes) parts.push(`weeknight ceiling: ~${eff.weeknight_minutes} min active`);
   if(eff.notes) parts.push(`effort: ${eff.notes}`);
-  if(!parts.length && !tasteProfile.sensibility) return '';
-  return `\n\nTHEIR TASTE PROFILE (the axes underneath what they eat — reason from these to suggest things they haven't had, don't just restate them): ${parts.join('; ')}.` +
-    (tasteProfile.sensibility ? ` ${tasteProfile.sensibility}` : '');
+  const avoid = tasteProfile.avoid || [];
+  if(!parts.length && !tasteProfile.sensibility && !avoid.length) return '';
+  let out = '';
+  if(parts.length || tasteProfile.sensibility){
+    out += `\n\nTHEIR TASTE PROFILE (the axes underneath what they eat — reason from these to suggest things they haven't had, don't just restate them): ${parts.join('; ')}.` +
+      (tasteProfile.sensibility ? ` ${tasteProfile.sensibility}` : '');
+  }
+  if(avoid.length){
+    out += `\n\nTHINGS TO NEVER SUGGEST (explicitly disliked, hard exclusions): ${avoid.join(', ')}.`;
+  }
+  return out;
 }
 
 function renderProfileView(){
   const el = document.getElementById('profileBody');
   if(!el) return;
-  const has = tasteProfile && (
-    Object.values(tasteProfile.axes||{}).some(v=>v && v.length) || tasteProfile.sensibility
-  );
+  if(!tasteProfile) tasteProfile = emptyProfile();
+  const has = Object.values(tasteProfile.axes||{}).some(v=>v && v.length) || tasteProfile.sensibility ||
+    (tasteProfile.avoid && tasteProfile.avoid.length);
 
   if(profileBusy){
     el.innerHTML = '<div class="taste-empty">Working through what you eat…</div>';
     return;
   }
+
+  el.innerHTML = '';
+
   if(!has){
     el.innerHTML = `<div class="taste-empty">No profile yet. Claude will read your notes, saved recipes, and what you've actually cooked, then ask about anything it can't work out.</div>
       <button class="wa-btn claude-btn" id="buildProfileBtn" style="margin-top:12px;">✨ Build my profile</button>`;
-    document.getElementById('buildProfileBtn').onclick = buildProfile;
-    return;
+    el.querySelector('#buildProfileBtn').onclick = buildProfile;
+  } else {
+    Object.entries(AXIS_LABELS).forEach(([key, label])=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'axis';
+      wrap.innerHTML = `<div class="axis-label">${label}</div>`;
+      const grid = document.createElement('div');
+      grid.className = 'axis-chips';
+      (tasteProfile.axes[key] || []).forEach(tag=>{
+        const chip = document.createElement('span');
+        chip.className = 'axis-chip';
+        chip.textContent = tag;
+        const x = document.createElement('span');
+        x.className = 'chip-x';
+        x.textContent = '✕';
+        x.onclick = ()=>{
+          tasteProfile.axes[key] = tasteProfile.axes[key].filter(t=>t!==tag);
+          saveTasteProfile(); renderProfileView();
+        };
+        chip.appendChild(x);
+        grid.appendChild(chip);
+      });
+      const add = document.createElement('span');
+      add.className = 'axis-chip add';
+      add.textContent = '+';
+      add.onclick = ()=>{
+        const inp = document.createElement('input');
+        inp.className = 'axis-input';
+        inp.placeholder = label.toLowerCase().replace(/s$/,'');
+        add.replaceWith(inp);
+        inp.focus();
+        const commit = ()=>{
+          const v = inp.value.trim().toLowerCase();
+          if(v && !tasteProfile.axes[key].includes(v)){
+            tasteProfile.axes[key].push(v); saveTasteProfile();
+          }
+          renderProfileView();
+        };
+        inp.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderProfileView(); };
+        inp.onblur = commit;
+      };
+      grid.appendChild(add);
+      wrap.appendChild(grid);
+      el.appendChild(wrap);
+    });
   }
 
-  el.innerHTML = '';
-  Object.entries(AXIS_LABELS).forEach(([key, label])=>{
-    const wrap = document.createElement('div');
-    wrap.className = 'axis';
-    wrap.innerHTML = `<div class="axis-label">${label}</div>`;
-    const grid = document.createElement('div');
-    grid.className = 'axis-chips';
-    (tasteProfile.axes[key] || []).forEach(tag=>{
-      const chip = document.createElement('span');
-      chip.className = 'axis-chip';
-      chip.textContent = tag;
-      const x = document.createElement('span');
-      x.className = 'chip-x';
-      x.textContent = '✕';
-      x.onclick = ()=>{
-        tasteProfile.axes[key] = tasteProfile.axes[key].filter(t=>t!==tag);
-        saveTasteProfile(); renderProfileView();
-      };
-      chip.appendChild(x);
-      grid.appendChild(chip);
-    });
-    const add = document.createElement('span');
-    add.className = 'axis-chip add';
-    add.textContent = '+';
-    add.onclick = ()=>{
-      const inp = document.createElement('input');
-      inp.className = 'axis-input';
-      inp.placeholder = label.toLowerCase().replace(/s$/,'');
-      add.replaceWith(inp);
-      inp.focus();
-      const commit = ()=>{
-        const v = inp.value.trim().toLowerCase();
-        if(v && !tasteProfile.axes[key].includes(v)){
-          tasteProfile.axes[key].push(v); saveTasteProfile();
-        }
-        renderProfileView();
-      };
-      inp.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderProfileView(); };
-      inp.onblur = commit;
+  // Avoid is always addable — it's user-asserted, doesn't need a built profile.
+  if(!tasteProfile.avoid) tasteProfile.avoid = [];
+  const avoidWrap = document.createElement('div');
+  avoidWrap.className = 'axis';
+  avoidWrap.innerHTML = `<div class="axis-label">Avoid</div>`;
+  const avoidGrid = document.createElement('div');
+  avoidGrid.className = 'axis-chips';
+  tasteProfile.avoid.forEach(item=>{
+    const chip = document.createElement('span');
+    chip.className = 'axis-chip avoid';
+    chip.textContent = item;
+    const x = document.createElement('span');
+    x.className = 'chip-x';
+    x.textContent = '✕';
+    x.onclick = ()=>{
+      tasteProfile.avoid = tasteProfile.avoid.filter(t=>t!==item);
+      saveTasteProfile(); renderProfileView();
     };
-    grid.appendChild(add);
-    wrap.appendChild(grid);
-    el.appendChild(wrap);
+    chip.appendChild(x);
+    avoidGrid.appendChild(chip);
   });
+  const avoidAdd = document.createElement('span');
+  avoidAdd.className = 'axis-chip avoid add';
+  avoidAdd.textContent = '+';
+  avoidAdd.onclick = ()=>{
+    const inp = document.createElement('input');
+    inp.className = 'axis-input';
+    inp.placeholder = 'e.g. stuffed peppers';
+    avoidAdd.replaceWith(inp);
+    inp.focus();
+    const commit = ()=>{
+      const v = inp.value.trim();
+      if(v && !tasteProfile.avoid.some(t=>t.toLowerCase()===v.toLowerCase())){
+        tasteProfile.avoid.push(v); saveTasteProfile();
+      }
+      renderProfileView();
+    };
+    inp.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderProfileView(); };
+    inp.onblur = commit;
+  };
+  avoidGrid.appendChild(avoidAdd);
+  avoidWrap.appendChild(avoidGrid);
+  el.appendChild(avoidWrap);
+
+  if(!has) return; // nothing built yet — effort/sensibility/gaps need a real profile
 
   const eff = document.createElement('div');
   eff.className = 'axis';

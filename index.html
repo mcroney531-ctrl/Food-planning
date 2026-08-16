@@ -1126,6 +1126,7 @@ let stockedItems = new Set();
 let activeChatProtein = null; // which protein's thread the Chat drawer view shows
 let surpriseBusy = new Set(); // protein ids currently waiting on a Surprise Me call
 let chatHistories = {}; // proteinId -> array of {role, content}
+const LS_CHAT = 'sw_chat_histories_v1'; // proteinId -> { messages, updated_at }
 let apiKey = null;
 try { apiKey = localStorage.getItem('sw_api_key'); } catch(e){}
 let tasteNotes = []; // array of {id, note}
@@ -1291,6 +1292,7 @@ async function sendChat(pid){
 
   chatHistories[pid].push({ role:'user', text });
   input.value = '';
+  persistChatHistory(pid);
   chatHistories[pid].push({ role:'assistant thinking', text:'...' });
   renderChatLog(pid);
 
@@ -1339,11 +1341,55 @@ async function sendChat(pid){
     chatHistories[pid].pop(); // remove thinking placeholder
     chatHistories[pid].push({ role:'assistant', text: displayText || raw, ideas });
     renderChatLog(pid);
+    persistChatHistory(pid);
   } catch(err){
     chatHistories[pid].pop();
     chatHistories[pid].push({ role:'assistant', text: "Couldn't reach Claude — check your API key and try again." });
     renderChatLog(pid);
+    persistChatHistory(pid);
   }
+}
+
+// Same localStorage-first + Supabase-upsert pattern as everything else in
+// this app. Only the "thinking" placeholder is dropped — a stale spinner
+// left over from a page close would be confusing on reload.
+async function persistChatHistory(pid){
+  const messages = (chatHistories[pid] || []).filter(m => m.role === 'user' || m.role === 'assistant');
+  const updated_at = new Date().toISOString();
+  const store = lsGet(LS_CHAT) || {};
+  store[pid] = { messages, updated_at };
+  lsSet(LS_CHAT, store);
+  const { error } = await sb.from('food_chat_histories')
+    .upsert({ protein_id: pid, messages, updated_at }, { onConflict: 'protein_id' });
+  if(error) console.warn('Chat history not synced:', error.message);
+}
+
+async function loadChatHistories(){
+  const store = lsGet(LS_CHAT) || {};
+  Object.entries(store).forEach(([pid, entry])=>{ chatHistories[pid] = entry.messages || []; });
+
+  const { data, error } = await sb.from('food_chat_histories').select('protein_id, messages, updated_at');
+  if(error || !data) return;
+
+  data.forEach(row=>{
+    const localEntry = store[row.protein_id];
+    // Remote wins only when it's actually newer — same lesson as the taste profile.
+    if(!localEntry || new Date(row.updated_at || 0) >= new Date(localEntry.updated_at || 0)){
+      chatHistories[row.protein_id] = row.messages || [];
+      store[row.protein_id] = { messages: row.messages || [], updated_at: row.updated_at };
+    }
+  });
+  lsSet(LS_CHAT, store);
+
+  // Threads chatted on before the table existed (or while offline): push them
+  // up instead of stranding them on one device.
+  const remoteIds = new Set(data.map(r=>r.protein_id));
+  Object.entries(store).forEach(([pid, entry])=>{
+    if(remoteIds.has(pid) || !entry.messages || !entry.messages.length) return;
+    sb.from('food_chat_histories')
+      .upsert({ protein_id: pid, messages: entry.messages, updated_at: entry.updated_at || new Date().toISOString() }, { onConflict: 'protein_id' })
+      .then(({ error:e })=>{ if(e) console.warn('Chat history backfill failed:', e.message); });
+  });
 }
 
 // One-shot version of the chat brainstorm: no back-and-forth, just ask for a
@@ -2911,6 +2957,7 @@ async function init(){
   try { await loadWeek(); } catch(e){ console.warn('Week failed to load:', e); remoteWeekOk = false; }
   try { await loadHistory(); } catch(e){ console.warn('History failed to load:', e); }
   try { await loadTasteProfile(); } catch(e){ console.warn('Taste profile failed to load:', e); }
+  try { await loadChatHistories(); } catch(e){ console.warn('Chat history failed to load:', e); }
   hydrated = true;                // saving is armed only after the load settles
   renderAll();
   loadTasteNotes().catch(e=> console.warn('Taste notes failed to load:', e));

@@ -169,3 +169,33 @@ alter table public.food_taste_profile
 -- `avoid_methods` keys — already flexible jsonb, nothing to alter.
 alter table public.food_taste_profile
   add column if not exists prefer_not jsonb not null default '[]'::jsonb;
+
+-- ---------------------------------------------------------------------------
+-- 5. food_chat_histories — one row per protein, so a Chat thread survives
+--    closing the app and follows you to another device. Was in-memory only
+--    (a bare JS object, `chatHistories`) until Chat moved into the drawer as
+--    its own top-level view — losing a whole conversation on refresh went
+--    from a minor annoyance to an actual data-loss surprise.
+-- ---------------------------------------------------------------------------
+create table if not exists public.food_chat_histories (
+  protein_id  text primary key,
+  messages    jsonb       not null default '[]'::jsonb,  -- [{role:'user'|'assistant', text, ideas?}, ...]
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.food_chat_histories enable row level security;
+
+do $$ begin
+  create policy food_chat_histories_select on public.food_chat_histories
+    for select to anon, authenticated using (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_chat_histories_insert on public.food_chat_histories
+    for insert to anon, authenticated with check (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_chat_histories_update on public.food_chat_histories
+    for update to anon, authenticated using (true) with check (true);
+exception when duplicate_object then null; end $$;

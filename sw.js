@@ -1,4 +1,4 @@
-const CACHE = 'sunday-setup-v13';
+const CACHE = 'sunday-setup-v14';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

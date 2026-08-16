@@ -925,6 +925,15 @@
     transition:transform .18s var(--ease);
   }
   .recipe-add:active{ transform:scale(0.97); }
+  .recipe-add:disabled{ cursor:default; opacity:0.7; }
+  .recipe-item.saved{ opacity:0.6; }
+  .discover-blurb{
+    font-size:12px;
+    color:var(--muted);
+    line-height:1.5;
+    margin-top:4px;
+  }
+  .discover-refresh{ margin-bottom:14px; }
 
   body.drawer-open{ overflow:hidden; }
 
@@ -1036,6 +1045,11 @@
   <div class="drawer-body">
 
     <div class="drawer-view" id="view-menu">
+      <button class="menu-item" data-view="discover">
+        <span class="mi-emoji">🔮</span>
+        <span class="mi-text">Discover<span class="mi-sub">Fresh ideas from your taste profile</span></span>
+        <span class="mi-chev">›</span>
+      </button>
       <button class="menu-item" data-view="taste">
         <span class="mi-emoji">🧭</span>
         <span class="mi-text">Taste profile<span class="mi-sub">What you like, and the notes behind it</span></span>
@@ -1056,6 +1070,11 @@
         <span class="mi-text">Saved recipes<span class="mi-sub">Everything in your Food Log</span></span>
         <span class="mi-chev">›</span>
       </button>
+    </div>
+
+    <div class="drawer-view" id="view-discover" hidden>
+      <div class="sub">General ideas that fit your taste profile — not tied to a specific protein. Tap one to save it straight to your recipes.</div>
+      <div id="discoverBody"></div>
     </div>
 
     <div class="drawer-view" id="view-taste" hidden>
@@ -1390,6 +1409,165 @@ async function loadChatHistories(){
       .upsert({ protein_id: pid, messages: entry.messages, updated_at: entry.updated_at || new Date().toISOString() }, { onConflict: 'protein_id' })
       .then(({ error:e })=>{ if(e) console.warn('Chat history backfill failed:', e.message); });
   });
+}
+
+// ---------- DISCOVER ----------
+// General ideas, not scoped to a protein — the opposite direction from
+// Surprise Me. A standing feed rather than something you ask for each time,
+// refreshed on a cadence (or on demand) rather than regenerated on every
+// open, so it doesn't burn an API call every time you check the drawer.
+// Saving an idea here writes straight into food_log_items — the same table
+// the separate Food Log app owns — so a Discover idea and a Food Log save
+// are the same kind of thing from the moment you keep it.
+const LS_DISCOVER = 'sw_discover_feed_v1';
+const DISCOVER_STALE_MS = 7 * 24 * 60 * 60 * 1000; // one week
+let discoverIdeas = [];        // [{title, category, blurb, saved}]
+let discoverGeneratedAt = null;
+let discoverBusy = false;
+
+function loadDiscoverFeed(){
+  const stored = lsGet(LS_DISCOVER);
+  if(stored){
+    discoverIdeas = stored.ideas || [];
+    discoverGeneratedAt = stored.generatedAt || null;
+  }
+}
+
+function saveDiscoverFeed(){
+  lsSet(LS_DISCOVER, { ideas: discoverIdeas, generatedAt: discoverGeneratedAt });
+}
+
+function renderDiscoverView(){
+  const el = document.getElementById('discoverBody');
+  if(!el) return;
+  const stale = !discoverGeneratedAt || (Date.now() - new Date(discoverGeneratedAt).getTime()) > DISCOVER_STALE_MS;
+
+  if(!discoverIdeas.length && !discoverBusy && stale){
+    generateDiscoverIdeas();
+    return;
+  }
+
+  el.innerHTML = '';
+  const refreshBtn = document.createElement('button');
+  refreshBtn.className = 'shuffle-btn claude-btn discover-refresh' + (discoverBusy ? ' busy' : '');
+  refreshBtn.textContent = discoverBusy ? '✨ Thinking…' : '✨ Give me more';
+  if(!discoverBusy) refreshBtn.onclick = ()=> generateDiscoverIdeas();
+  el.appendChild(refreshBtn);
+
+  if(!discoverIdeas.length){
+    const empty = document.createElement('div');
+    empty.className = 'drawer-empty';
+    empty.innerHTML = `<span class="de-icon">🔮</span>${discoverBusy ? 'Cooking up some ideas…' : 'Tap "Give me more" for a batch of ideas tailored to your taste profile.'}`;
+    el.appendChild(empty);
+    return;
+  }
+
+  discoverIdeas.forEach((idea, i)=>{
+    const card = document.createElement('div');
+    card.className = 'recipe-item' + (idea.saved ? ' saved' : '');
+    card.innerHTML = `
+      <div class="rt">${escapeHtml(idea.title)}</div>
+      <div class="recipe-meta"><span class="recipe-cat">${escapeHtml(idea.category)}</span></div>
+      <div class="discover-blurb">${escapeHtml(idea.blurb)}</div>
+      <button class="recipe-add discover-save" data-i="${i}" ${idea.saved ? 'disabled' : ''}>${idea.saved ? '✓ Saved' : '+ Save to recipes'}</button>
+    `;
+    el.appendChild(card);
+  });
+  el.querySelectorAll('.discover-save').forEach(btn=>{
+    btn.onclick = ()=> saveDiscoverIdea(parseInt(btn.dataset.i));
+  });
+}
+
+async function generateDiscoverIdeas(){
+  if(discoverBusy) return;
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) return;
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+  discoverBusy = true;
+  renderDiscoverView();
+
+  const onHand = PROTEINS.filter(p => selectedProteins.has(p.id) || p.freezer).map(p=>p.name);
+  const profileCtx = profileContext();
+  const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time: ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
+  const foodLogContext = foodLogItems.length ? `\n\nAlready saved to their recipes (don't repeat these): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const historyCtx = historyContext();
+  const onHandCtx = onHand.length ? `\n\nProteins they currently have on hand or picked for this week (a nice bonus to lean into, not a requirement): ${onHand.join(', ')}.` : '';
+  const prompt_ = `Suggest 6 specific meal, breakfast, or snack ideas for this person — general ideas, not tied to any one protein, that fit how they actually eat.${profileCtx}${tasteContext}${foodLogContext}${historyCtx}${onHandCtx} For each idea return a short punchy title (2-6 words), a category (exactly one of "Breakfast", "Meals", "Snacks", "Misc"), and a one-sentence blurb on why it might land well for this person specifically.`;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-5",
+        max_tokens: 1500,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "low", format: { type:"json_schema", schema: {
+          type:'object',
+          properties:{ ideas:{ type:'array', minItems:4, maxItems:6, items:{
+            type:'object',
+            properties:{
+              title:{ type:'string' },
+              category:{ type:'string', enum:['Breakfast','Meals','Snacks','Misc'] },
+              blurb:{ type:'string' },
+            },
+            required:['title','category','blurb'],
+            additionalProperties:false,
+          }}},
+          required:['ideas'],
+          additionalProperties:false,
+        }}},
+        messages: [{ role:"user", content: prompt_ }]
+      })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'API error');
+    if(data.stop_reason === 'refusal') throw new Error("Claude couldn't answer that one — try again.");
+    const textBlock = (data.content || []).find(c=>c.type==='text');
+    const parsed = JSON.parse(textBlock.text);
+    discoverIdeas = (parsed.ideas || []).map(i => ({ title:i.title, category:i.category, blurb:i.blurb, saved:false }));
+    discoverGeneratedAt = new Date().toISOString();
+    saveDiscoverFeed();
+  } catch(err){
+    console.warn('Discover failed:', err);
+    toast('Could not get ideas — ' + (err.message || 'try again.'), 'error');
+  } finally {
+    discoverBusy = false;
+    renderDiscoverView();
+  }
+}
+
+async function saveDiscoverIdea(i){
+  const idea = discoverIdeas[i];
+  if(!idea || idea.saved) return;
+  const row = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    title: idea.title,
+    category: idea.category,
+    image: null,
+    recipe: '',
+    calories: null,
+    source_url: null,
+  };
+  const { error } = await sb.from('food_log_items').insert(row);
+  if(error){
+    toast('Could not save that — check your connection.', 'error');
+    return;
+  }
+  idea.saved = true;
+  saveDiscoverFeed();
+  foodLogItems.unshift({ title: row.title, category: row.category });
+  if(savedRecipes) savedRecipes.unshift({ id: row.id, title: row.title, category: row.category, source_url: null });
+  renderDiscoverView();
+  if(savedRecipes) renderSavedRecipes();
+  toast(`Saved "${idea.title}" to your recipes.`);
 }
 
 // One-shot version of the chat brainstorm: no back-and-forth, just ask for a
@@ -2895,7 +3073,7 @@ function addRecipeToPlan(recipe){
 }
 
 // ---------- DRAWER ----------
-const VIEW_TITLES = { menu:'Menu', taste:'Taste profile', chat:'Chat', history:'Past weeks', recipes:'Saved recipes' };
+const VIEW_TITLES = { menu:'Menu', discover:'Discover', taste:'Taste profile', chat:'Chat', history:'Past weeks', recipes:'Saved recipes' };
 const drawer = document.getElementById('drawer');
 const scrim = document.getElementById('scrim');
 const meatball = document.getElementById('meatball');
@@ -2912,6 +3090,7 @@ function showView(name){
   if(name === 'history') renderHistoryView();
   if(name === 'taste') renderProfileView();
   if(name === 'chat') renderChatView();
+  if(name === 'discover') renderDiscoverView();
 }
 
 function openDrawer(){
@@ -2958,6 +3137,7 @@ async function init(){
   try { await loadHistory(); } catch(e){ console.warn('History failed to load:', e); }
   try { await loadTasteProfile(); } catch(e){ console.warn('Taste profile failed to load:', e); }
   try { await loadChatHistories(); } catch(e){ console.warn('Chat history failed to load:', e); }
+  try { loadDiscoverFeed(); } catch(e){ console.warn('Discover feed failed to load:', e); }
   hydrated = true;                // saving is armed only after the load settles
   renderAll();
   loadTasteNotes().catch(e=> console.warn('Taste notes failed to load:', e));

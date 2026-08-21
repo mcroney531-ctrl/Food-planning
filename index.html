@@ -547,28 +547,6 @@
     border-color:#D9CCF5;
     color:#6B4FC4;
   }
-  .chat-tabs{
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px;
-    margin-bottom:14px;
-  }
-  .chat-tab{
-    padding:7px 14px;
-    border-radius:16px;
-    border:1.5px solid var(--line);
-    background:#fff;
-    color:var(--navy);
-    font-size:13px;
-    font-weight:600;
-    cursor:pointer;
-    font-family:var(--font);
-  }
-  .chat-tab.active{
-    background:var(--navy);
-    border-color:var(--navy);
-    color:#fff;
-  }
   .chat-log{
     max-height:min(48vh, 420px);
     overflow-y:auto;
@@ -1057,7 +1035,7 @@
       </button>
       <button class="menu-item" data-view="chat">
         <span class="mi-emoji">💬</span>
-        <span class="mi-text">Chat<span class="mi-sub">Brainstorm with Claude, per protein</span></span>
+        <span class="mi-text">Your Dietitian<span class="mi-sub">Talk through anything food-related</span></span>
         <span class="mi-chev">›</span>
       </button>
       <button class="menu-item" data-view="history">
@@ -1092,7 +1070,7 @@
     </div>
 
     <div class="drawer-view" id="view-chat" hidden>
-      <div class="sub">Ask for ideas, riff on one, or say "more like that 2nd one." One thread per protein.</div>
+      <div class="sub">Bring up anything food-related — a dish you love and why, how to make something at home, related ideas. Not scoped to a protein or the weekly plan.</div>
       <div id="chatBody"></div>
     </div>
 
@@ -1142,10 +1120,9 @@ let comboAssignments = {}; // proteinId -> Set of combos
 let dayPlan = {};          // 'MON' -> combo string (Sunday is the plan day)
 let selectedBreakfasts = new Set();
 let stockedItems = new Set();
-let activeChatProtein = null; // which protein's thread the Chat drawer view shows
 let surpriseBusy = new Set(); // protein ids currently waiting on a Surprise Me call
-let chatHistories = {}; // proteinId -> array of {role, content}
-const LS_CHAT = 'sw_chat_histories_v1'; // proteinId -> { messages, updated_at }
+let dietitianHistory = []; // Your Dietitian — one global conversation, not protein-scoped
+const LS_DIETITIAN = 'sw_dietitian_chat_v1';
 let apiKey = null;
 try { apiKey = localStorage.getItem('sw_api_key'); } catch(e){}
 let tasteNotes = []; // array of {id, note}
@@ -1213,95 +1190,64 @@ function addTasteNote(){
   saveTasteNoteRemote(val);
 }
 
-// Chat lives in the drawer now, not inline per protein-block — one thread per
-// protein still (chatHistories is keyed by pid), just switched via tabs here
-// instead of one panel per block.
+// Your Dietitian — one freeform conversation, not scoped to a protein or the
+// weekly plan. You can bring up anything: a dish you love and why, how to
+// make something at home, related ideas, whatever. A named idea worth
+// keeping saves straight to food_log_items, same as Discover — not to a
+// protein's combo list, since this conversation isn't protein-bound anymore.
 function renderChatView(){
   const el = document.getElementById('chatBody');
   if(!el) return;
-  const proteins = PROTEINS.filter(p=>selectedProteins.has(p.id));
-
-  if(!proteins.length){
-    el.innerHTML = `<div class="drawer-empty"><span class="de-icon">💬</span>Pick a protein on the main page first, then come back here to brainstorm ideas for it.</div>`;
-    return;
-  }
-  if(!activeChatProtein || !proteins.some(p=>p.id===activeChatProtein)){
-    activeChatProtein = proteins[0].id;
-  }
-  const pid = activeChatProtein;
-  if(!chatHistories[pid]) chatHistories[pid] = [];
-
   el.innerHTML = '';
-  const tabs = document.createElement('div');
-  tabs.className = 'chat-tabs';
-  proteins.forEach(p=>{
-    const tab = document.createElement('button');
-    tab.className = 'chat-tab' + (p.id===pid ? ' active' : '');
-    tab.textContent = p.name;
-    tab.onclick = ()=>{ activeChatProtein = p.id; renderChatView(); };
-    tabs.appendChild(tab);
-  });
-  el.appendChild(tabs);
 
   const chatLog = document.createElement('div');
   chatLog.className = 'chat-log';
-  chatLog.id = 'chat-log-' + pid;
+  chatLog.id = 'dietitian-log';
   el.appendChild(chatLog);
 
   const inputRow = document.createElement('div');
   inputRow.className = 'chat-input-row';
   inputRow.innerHTML = `
-    <input type="text" class="ask-input" id="ask-input-${pid}" placeholder="Ask for ideas, riff on one, say 'more like that 2nd one'...">
-    <button class="ask-go" id="ask-go-${pid}">Send</button>
+    <input type="text" class="ask-input" id="dietitian-input" placeholder="Ask about anything food-related...">
+    <button class="ask-go" id="dietitian-go">Send</button>
   `;
   el.appendChild(inputRow);
 
-  renderChatLog(pid);
-  const goBtn = document.getElementById('ask-go-' + pid);
-  const inputEl = document.getElementById('ask-input-' + pid);
-  if(goBtn) goBtn.onclick = ()=> sendChat(pid);
-  if(inputEl) inputEl.onkeydown = (e)=>{ if(e.key==='Enter') sendChat(pid); };
+  renderChatLog();
+  const goBtn = document.getElementById('dietitian-go');
+  const inputEl = document.getElementById('dietitian-input');
+  if(goBtn) goBtn.onclick = sendDietitianMessage;
+  if(inputEl) inputEl.onkeydown = (e)=>{ if(e.key==='Enter') sendDietitianMessage(); };
 }
 
-function renderChatLog(pid){
-  const log = document.getElementById('chat-log-' + pid);
+function renderChatLog(){
+  const log = document.getElementById('dietitian-log');
   if(!log) return;
-  const history = chatHistories[pid] || [];
   log.innerHTML = '';
-  history.forEach(msg=>{
+  dietitianHistory.forEach((msg, mi)=>{
     const div = document.createElement('div');
     div.className = 'msg ' + msg.role;
     if(msg.role === 'assistant' && msg.ideas && msg.ideas.length){
       div.innerHTML = msg.text.replace(/\n/g,'<br>') + '<br>' +
-        msg.ideas.map(idea => `<span class="add-idea" data-pid="${pid}" data-idea="${idea.replace(/"/g,'&quot;')}">+ ${idea}</span>`).join('');
+        msg.ideas.map((idea, ii) => idea.saved
+          ? `<span class="add-idea saved">✓ ${escapeHtml(idea.title)}</span>`
+          : `<span class="add-idea" data-mi="${mi}" data-ii="${ii}">+ ${escapeHtml(idea.title)}</span>`
+        ).join('');
     } else {
       div.textContent = msg.text;
     }
     log.appendChild(div);
   });
   log.scrollTop = log.scrollHeight;
-  log.querySelectorAll('.add-idea').forEach(el=>{
-    el.onclick = ()=>{
-      const pid2 = el.dataset.pid;
-      const idea = el.dataset.idea;
-      const p = PROTEINS.find(x=>x.id===pid2);
-      if(p && !p.combos.includes(idea)){
-        p.combos.push(idea);
-        saveCustomCombo(pid2, idea);   // durable: an idea liked once should stay
-      }
-      if(!comboAssignments[pid2]) comboAssignments[pid2] = new Set();
-      comboAssignments[pid2].add(idea);
-      renderAll();
-    };
+  log.querySelectorAll('.add-idea:not(.saved)').forEach(el=>{
+    el.onclick = ()=> saveDietitianIdea(parseInt(el.dataset.mi), parseInt(el.dataset.ii));
   });
 }
 
-async function sendChat(pid){
-  const p = PROTEINS.find(x=>x.id===pid);
-  const input = document.getElementById('ask-input-' + pid);
+async function sendDietitianMessage(){
+  const input = document.getElementById('dietitian-input');
   const text = input ? input.value.trim() : '';
   if(!text) return;
-  if(!chatHistories[pid]) chatHistories[pid] = [];
 
   if(!apiKey){
     apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
@@ -1309,19 +1255,19 @@ async function sendChat(pid){
     try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
   }
 
-  chatHistories[pid].push({ role:'user', text });
+  dietitianHistory.push({ role:'user', text });
   input.value = '';
-  persistChatHistory(pid);
-  chatHistories[pid].push({ role:'assistant thinking', text:'...' });
-  renderChatLog(pid);
+  persistDietitianHistory();
+  dietitianHistory.push({ role:'assistant thinking', text:'...' });
+  renderChatLog();
 
-  const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time (weight these heavily — this is their actual signal, not the existing combo list): ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
-  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals this person has separately saved to their food log (real signal about what they gravitate toward — use as inspiration for tone and direction, don't just repeat these as combo names or treat them as a menu to pull from): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time: ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
+  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals they've saved: ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
   const profileCtx = profileContext();
   const historyCtx = historyContext();
-  const sysContext = `You're helping brainstorm quick weeknight meal ideas using ${p.name} as the base protein. Existing saved combos for this protein: ${p.combos.join(', ')}.${profileCtx}${tasteContext}${foodLogContext}${historyCtx} Keep answers short and conversational — a sentence or two of context is fine, but the main value is naming specific new meal/combo ideas (2-6 words each) not already in the existing list. This person doesn't want detailed recipes or rigid instructions, just quick directions to take the protein in. Always end your reply with a line "IDEAS: " followed by a JSON array of the specific new idea names you mentioned, e.g. IDEAS: ["Beef Lettuce Cups","Skillet Hash"]. If you're not suggesting new named ideas in this particular reply, use IDEAS: [].`;
+  const sysContext = `You're this person's personal dietitian and food companion — someone they can talk through anything food-related with, not a combo-idea generator scoped to one protein. They might mention a dish they love and want to explore why, ask how to make something at home, want related dishes, or just think out loud about food. Follow wherever it goes.${profileCtx}${tasteContext}${foodLogContext}${historyCtx} Keep replies conversational — match their depth: brief for a quick question, more detail (including real recipe guidance) when they're actually asking for it. If you name specific dishes worth remembering, end your reply with a line "IDEAS: " followed by a JSON array of objects like IDEAS: [{"title":"Potato Cheddar Chive Bake","category":"Breakfast"}] — category must be exactly one of "Breakfast", "Meals", "Snacks", "Misc". If nothing's worth naming as a keepable idea this reply, use IDEAS: [].`;
 
-  const apiMessages = chatHistories[pid]
+  const apiMessages = dietitianHistory
     .filter(m => m.role === 'user' || m.role === 'assistant')
     .map(m => ({ role: m.role, content: m.text }));
   apiMessages.push({ role: 'user', content: text });
@@ -1353,62 +1299,80 @@ async function sendChat(pid){
     let displayText = raw;
     const ideaMatch = raw.match(/IDEAS:\s*(\[[\s\S]*\])/);
     if(ideaMatch){
-      try { ideas = JSON.parse(ideaMatch[1]); } catch(e){ ideas = []; }
+      try { ideas = (JSON.parse(ideaMatch[1]) || []).map(i => ({ title:i.title, category:i.category, saved:false })); }
+      catch(e){ ideas = []; }
       displayText = raw.slice(0, ideaMatch.index).trim();
     }
 
-    chatHistories[pid].pop(); // remove thinking placeholder
-    chatHistories[pid].push({ role:'assistant', text: displayText || raw, ideas });
-    renderChatLog(pid);
-    persistChatHistory(pid);
+    dietitianHistory.pop(); // remove thinking placeholder
+    dietitianHistory.push({ role:'assistant', text: displayText || raw, ideas });
+    renderChatLog();
+    persistDietitianHistory();
   } catch(err){
-    chatHistories[pid].pop();
-    chatHistories[pid].push({ role:'assistant', text: "Couldn't reach Claude — check your API key and try again." });
-    renderChatLog(pid);
-    persistChatHistory(pid);
+    dietitianHistory.pop();
+    dietitianHistory.push({ role:'assistant', text: "Couldn't reach Claude — check your API key and try again." });
+    renderChatLog();
+    persistDietitianHistory();
   }
 }
 
-// Same localStorage-first + Supabase-upsert pattern as everything else in
-// this app. Only the "thinking" placeholder is dropped — a stale spinner
-// left over from a page close would be confusing on reload.
-async function persistChatHistory(pid){
-  const messages = (chatHistories[pid] || []).filter(m => m.role === 'user' || m.role === 'assistant');
-  const updated_at = new Date().toISOString();
-  const store = lsGet(LS_CHAT) || {};
-  store[pid] = { messages, updated_at };
-  lsSet(LS_CHAT, store);
-  const { error } = await sb.from('food_chat_histories')
-    .upsert({ protein_id: pid, messages, updated_at }, { onConflict: 'protein_id' });
-  if(error) console.warn('Chat history not synced:', error.message);
+async function saveDietitianIdea(mi, ii){
+  const idea = dietitianHistory[mi] && dietitianHistory[mi].ideas && dietitianHistory[mi].ideas[ii];
+  if(!idea || idea.saved) return;
+  const row = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    title: idea.title,
+    category: idea.category || 'Misc',
+    image: null,
+    recipe: '',
+    calories: null,
+    source_url: null,
+  };
+  const { error } = await sb.from('food_log_items').insert(row);
+  if(error){
+    toast('Could not save that — check your connection.', 'error');
+    return;
+  }
+  idea.saved = true;
+  persistDietitianHistory();
+  foodLogItems.unshift({ title: row.title, category: row.category });
+  if(savedRecipes) savedRecipes.unshift({ id: row.id, title: row.title, category: row.category, source_url: null });
+  renderChatLog();
+  if(savedRecipes) renderSavedRecipes();
+  toast(`Saved "${idea.title}" to your recipes.`);
 }
 
-async function loadChatHistories(){
-  const store = lsGet(LS_CHAT) || {};
-  Object.entries(store).forEach(([pid, entry])=>{ chatHistories[pid] = entry.messages || []; });
+// Same localStorage-first + Supabase-upsert pattern as everything else in
+// this app, singleton row like the taste profile. Only the "thinking"
+// placeholder is dropped — a stale spinner left over from a page close
+// would be confusing on reload.
+async function persistDietitianHistory(){
+  const messages = dietitianHistory.filter(m => m.role === 'user' || m.role === 'assistant');
+  const updated_at = new Date().toISOString();
+  lsSet(LS_DIETITIAN, { messages, updated_at });
+  const { error } = await sb.from('food_dietitian_chat')
+    .upsert({ id: 1, messages, updated_at }, { onConflict: 'id' });
+  if(error) console.warn('Dietitian chat not synced:', error.message);
+}
 
-  const { data, error } = await sb.from('food_chat_histories').select('protein_id, messages, updated_at');
+async function loadDietitianHistory(){
+  const local = lsGet(LS_DIETITIAN);
+  if(local) dietitianHistory = local.messages || [];
+
+  const { data, error } = await sb.from('food_dietitian_chat').select('messages, updated_at').eq('id', 1).maybeSingle();
   if(error || !data) return;
 
-  data.forEach(row=>{
-    const localEntry = store[row.protein_id];
-    // Remote wins only when it's actually newer — same lesson as the taste profile.
-    if(!localEntry || new Date(row.updated_at || 0) >= new Date(localEntry.updated_at || 0)){
-      chatHistories[row.protein_id] = row.messages || [];
-      store[row.protein_id] = { messages: row.messages || [], updated_at: row.updated_at };
-    }
-  });
-  lsSet(LS_CHAT, store);
-
-  // Threads chatted on before the table existed (or while offline): push them
-  // up instead of stranding them on one device.
-  const remoteIds = new Set(data.map(r=>r.protein_id));
-  Object.entries(store).forEach(([pid, entry])=>{
-    if(remoteIds.has(pid) || !entry.messages || !entry.messages.length) return;
-    sb.from('food_chat_histories')
-      .upsert({ protein_id: pid, messages: entry.messages, updated_at: entry.updated_at || new Date().toISOString() }, { onConflict: 'protein_id' })
-      .then(({ error:e })=>{ if(e) console.warn('Chat history backfill failed:', e.message); });
-  });
+  // Remote wins only when it's actually newer — same lesson as the taste profile.
+  if(!local || new Date(data.updated_at || 0) >= new Date(local.updated_at || 0)){
+    dietitianHistory = data.messages || [];
+    lsSet(LS_DIETITIAN, { messages: dietitianHistory, updated_at: data.updated_at });
+  } else if(local.messages && local.messages.length){
+    // Chatted before the table existed (or while offline): push it up instead
+    // of stranding it on one device.
+    sb.from('food_dietitian_chat')
+      .upsert({ id: 1, messages: local.messages, updated_at: local.updated_at || new Date().toISOString() }, { onConflict: 'id' })
+      .then(({ error:e })=>{ if(e) console.warn('Dietitian chat backfill failed:', e.message); });
+  }
 }
 
 // ---------- DISCOVER ----------
@@ -3073,7 +3037,7 @@ function addRecipeToPlan(recipe){
 }
 
 // ---------- DRAWER ----------
-const VIEW_TITLES = { menu:'Menu', discover:'Discover', taste:'Taste profile', chat:'Chat', history:'Past weeks', recipes:'Saved recipes' };
+const VIEW_TITLES = { menu:'Menu', discover:'Discover', taste:'Taste profile', chat:'Your Dietitian', history:'Past weeks', recipes:'Saved recipes' };
 const drawer = document.getElementById('drawer');
 const scrim = document.getElementById('scrim');
 const meatball = document.getElementById('meatball');
@@ -3136,7 +3100,7 @@ async function init(){
   try { await loadWeek(); } catch(e){ console.warn('Week failed to load:', e); remoteWeekOk = false; }
   try { await loadHistory(); } catch(e){ console.warn('History failed to load:', e); }
   try { await loadTasteProfile(); } catch(e){ console.warn('Taste profile failed to load:', e); }
-  try { await loadChatHistories(); } catch(e){ console.warn('Chat history failed to load:', e); }
+  try { await loadDietitianHistory(); } catch(e){ console.warn('Dietitian chat failed to load:', e); }
   try { loadDiscoverFeed(); } catch(e){ console.warn('Discover feed failed to load:', e); }
   hydrated = true;                // saving is armed only after the load settles
   renderAll();

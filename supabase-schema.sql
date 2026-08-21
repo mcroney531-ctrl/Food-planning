@@ -171,31 +171,31 @@ alter table public.food_taste_profile
   add column if not exists prefer_not jsonb not null default '[]'::jsonb;
 
 -- ---------------------------------------------------------------------------
--- 5. food_chat_histories — one row per protein, so a Chat thread survives
---    closing the app and follows you to another device. Was in-memory only
---    (a bare JS object, `chatHistories`) until Chat moved into the drawer as
---    its own top-level view — losing a whole conversation on refresh went
---    from a minor annoyance to an actual data-loss surprise.
+-- 5. food_dietitian_chat — Your Dietitian's single ongoing conversation.
+--    Superseded food_chat_histories (dropped — 0 rows, never shipped) once
+--    Chat stopped being scoped to a protein and became one freeform thread
+--    you can bring anything food-related to. Singleton row, same pattern as
+--    food_taste_profile: one person, one conversation.
 -- ---------------------------------------------------------------------------
-create table if not exists public.food_chat_histories (
-  protein_id  text primary key,
-  messages    jsonb       not null default '[]'::jsonb,  -- [{role:'user'|'assistant', text, ideas?}, ...]
-  updated_at  timestamptz not null default now()
+create table if not exists public.food_dietitian_chat (
+  id         int primary key default 1 check (id = 1),
+  messages   jsonb not null default '[]'::jsonb,  -- [{role:'user'|'assistant', text, ideas?}, ...]
+  updated_at timestamptz not null default now()
 );
 
-alter table public.food_chat_histories enable row level security;
+alter table public.food_dietitian_chat enable row level security;
 
 do $$ begin
-  create policy food_chat_histories_select on public.food_chat_histories
+  create policy food_dietitian_chat_select on public.food_dietitian_chat
     for select to anon, authenticated using (true);
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create policy food_chat_histories_insert on public.food_chat_histories
+  create policy food_dietitian_chat_insert on public.food_dietitian_chat
     for insert to anon, authenticated with check (true);
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create policy food_chat_histories_update on public.food_chat_histories
+  create policy food_dietitian_chat_update on public.food_dietitian_chat
     for update to anon, authenticated using (true) with check (true);
 exception when duplicate_object then null; end $$;

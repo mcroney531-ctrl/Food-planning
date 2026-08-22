@@ -1545,7 +1545,7 @@ async function generateDiscoverIdeas(){
         thinking: { type: "adaptive" },
         output_config: { effort: "low", format: { type:"json_schema", schema: {
           type:'object',
-          properties:{ ideas:{ type:'array', minItems:4, maxItems:6, items:{
+          properties:{ ideas:{ type:'array', items:{
             type:'object',
             properties:{
               title:{ type:'string' },
@@ -1711,7 +1711,7 @@ async function surpriseMe(p){
             schema: {
               type: "object",
               properties: {
-                ideas: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 2 }
+                ideas: { type: "array", items: { type: "string" } }
               },
               required: ["ideas"],
               additionalProperties: false

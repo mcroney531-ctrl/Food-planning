@@ -49,6 +49,19 @@
     color:var(--text);
     padding-bottom:80px;
   }
+  .hero-wrap{ position:relative; }
+  .hero-art{
+    position:absolute;
+    top:-6px;
+    right:-6px;
+    width:120px;
+    height:auto;
+    pointer-events:none;   /* decorative only — never blocks a tap through to the banner beneath it */
+    user-select:none;
+  }
+  @media (min-width:640px){
+    .hero-art{ width:190px; top:-14px; right:6px; }
+  }
   header{
     background:linear-gradient(160deg, #2CB868 0%, var(--brand) 55%, #0F4A28 100%);
     color:#fff;
@@ -1033,35 +1046,39 @@
 </head>
 <body>
 
-<header>
-  <h1>Sunday Setup</h1>
-  <p>Decide once. Execute all week.</p>
-</header>
+<div class="hero-wrap">
+  <header>
+    <h1>Sunday Setup</h1>
+    <p>Decide once. Execute all week.</p>
+  </header>
 
-<nav class="top-banner" id="topBanner">
-  <div class="top-banner-inner">
-    <button class="banner-item" data-view="discover">
-      <span class="bi-emoji">🔮</span>
-      <span class="bi-text"><span class="bi-title">Discover</span><span class="bi-sub">Fresh ideas from your taste profile</span></span>
-    </button>
-    <button class="banner-item" data-view="taste">
-      <span class="bi-emoji">🧭</span>
-      <span class="bi-text"><span class="bi-title">Taste profile</span><span class="bi-sub">What you like, and the notes behind it</span></span>
-    </button>
-    <button class="banner-item" data-view="chat">
-      <span class="bi-emoji">💬</span>
-      <span class="bi-text"><span class="bi-title">Your Dietitian</span><span class="bi-sub">Talk through anything food-related</span></span>
-    </button>
-    <button class="banner-item" data-view="history">
-      <span class="bi-emoji">🗓️</span>
-      <span class="bi-text"><span class="bi-title">Past weeks</span><span class="bi-sub">What you've already eaten</span></span>
-    </button>
-    <button class="banner-item" data-view="recipes">
-      <span class="bi-emoji">📗</span>
-      <span class="bi-text"><span class="bi-title">Saved recipes</span><span class="bi-sub">Everything in your Food Log</span></span>
-    </button>
-  </div>
-</nav>
+  <nav class="top-banner" id="topBanner">
+    <div class="top-banner-inner">
+      <button class="banner-item" data-view="discover">
+        <span class="bi-emoji">🔮</span>
+        <span class="bi-text"><span class="bi-title">Discover</span><span class="bi-sub">Fresh ideas from your taste profile</span></span>
+      </button>
+      <button class="banner-item" data-view="taste">
+        <span class="bi-emoji">🧭</span>
+        <span class="bi-text"><span class="bi-title">Taste profile</span><span class="bi-sub">What you like, and the notes behind it</span></span>
+      </button>
+      <button class="banner-item" data-view="chat">
+        <span class="bi-emoji">💬</span>
+        <span class="bi-text"><span class="bi-title">Your Dietitian</span><span class="bi-sub">Talk through anything food-related</span></span>
+      </button>
+      <button class="banner-item" data-view="history">
+        <span class="bi-emoji">🗓️</span>
+        <span class="bi-text"><span class="bi-title">Past weeks</span><span class="bi-sub">What you've already eaten</span></span>
+      </button>
+      <button class="banner-item" data-view="recipes">
+        <span class="bi-emoji">📗</span>
+        <span class="bi-text"><span class="bi-title">Saved recipes</span><span class="bi-sub">Everything in your Food Log</span></span>
+      </button>
+    </div>
+  </nav>
+
+  <img class="hero-art" src="avocado-hero.webp" alt="" aria-hidden="true">
+</div>
 
 <div class="weekstrip" id="weekstrip"></div>
 <div class="week-actions" id="weekActions"></div>

@@ -1372,7 +1372,7 @@ async function saveDietitianIdea(mi, ii){
     title: idea.title,
     category: idea.category || 'Misc',
     image: null,
-    recipe: '',
+    recipe: (dietitianHistory[mi] && dietitianHistory[mi].text) || '',
     calories: null,
     source_url: null,
   };
@@ -1566,7 +1566,7 @@ async function saveDiscoverIdea(i){
     title: idea.title,
     category: idea.category,
     image: null,
-    recipe: '',
+    recipe: idea.blurb || '',
     calories: null,
     source_url: null,
   };

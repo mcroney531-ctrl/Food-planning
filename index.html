@@ -1159,7 +1159,7 @@ const LS_DIETITIAN = 'sw_dietitian_chat_v1';
 let apiKey = null;
 try { apiKey = localStorage.getItem('sw_api_key'); } catch(e){}
 let tasteNotes = []; // array of {id, note}
-let foodLogItems = []; // array of {title, category} — recipes saved in Food Log, used as ambient context only
+let foodLogItems = []; // array of {title, category, recipe} — recipes saved in Food Log, used as ambient context only
 
 async function loadTasteNotes(){
   const { data, error } = await sb.from('food_taste_notes').select('id, note').eq('archived', false).order('created_at', { ascending: true });
@@ -1168,8 +1168,21 @@ async function loadTasteNotes(){
 }
 
 async function loadFoodLogContext(){
-  const { data, error } = await sb.from('food_log_items').select('title, category').eq('archived', false).order('created_at', { ascending: false }).limit(40);
+  const { data, error } = await sb.from('food_log_items').select('title, category, recipe').eq('archived', false).order('created_at', { ascending: false }).limit(40);
   if(!error && data) foodLogItems = data;
+}
+
+// Title and category alone dropped everything a Pinterest import or typed
+// note actually said about a saved recipe — a short slice of its recipe/
+// description field is what makes "saved recipes" a real signal instead of
+// just a list of names. Truncated per item so 40 saved recipes can't blow up
+// every prompt that reads foodLogItems.
+function foodLogItemLine(i){
+  const base = `${i.title} (${i.category})`;
+  const note = (i.recipe || '').trim();
+  if(!note) return base;
+  const snippet = note.length > 160 ? note.slice(0, 160).trim() + '…' : note;
+  return `${base} — ${snippet}`;
 }
 
 async function saveTasteNoteRemote(note){
@@ -1295,7 +1308,7 @@ async function sendDietitianMessage(){
   renderChatLog();
 
   const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time: ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
-  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals they've saved: ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals they've saved: ${foodLogItems.map(foodLogItemLine).join('; ')}.` : '';
   const profileCtx = profileContext();
   const historyCtx = historyContext();
   const favs = favoritesContext();
@@ -1490,7 +1503,7 @@ async function generateDiscoverIdeas(){
   const onHand = PROTEINS.filter(p => selectedProteins.has(p.id) || p.freezer).map(p=>p.name);
   const profileCtx = profileContext();
   const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time: ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
-  const foodLogContext = foodLogItems.length ? `\n\nAlready saved to their recipes (don't repeat these): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const foodLogContext = foodLogItems.length ? `\n\nAlready saved to their recipes (don't repeat these): ${foodLogItems.map(foodLogItemLine).join('; ')}.` : '';
   const historyCtx = historyContext();
   const onHandCtx = onHand.length ? `\n\nProteins they currently have on hand or picked for this week (a nice bonus to lean into, not a requirement): ${onHand.join(', ')}.` : '';
   const favs = favoritesContext();
@@ -1587,7 +1600,7 @@ async function surpriseMe(p){
   renderAll();
 
   const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time (weight these heavily — this is their actual signal, not the existing combo list): ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
-  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals this person has separately saved to their food log (real signal about what they gravitate toward — use as inspiration for tone and direction, don't just repeat these as combo names or treat them as a menu to pull from): ${foodLogItems.map(i=>`${i.title} (${i.category})`).join('; ')}.` : '';
+  const foodLogContext = foodLogItems.length ? `\n\nRecipes/meals this person has separately saved to their food log (real signal about what they gravitate toward — use as inspiration for tone and direction, don't just repeat these as combo names or treat them as a menu to pull from): ${foodLogItems.map(foodLogItemLine).join('; ')}.` : '';
   const profileCtx = profileContext();
   const historyCtx = historyContext();
   const prompt_ = `Suggest exactly 2 specific new meal/combo ideas (2-6 words each) using ${p.name} as the base protein — fresh ideas that fit how this person actually eats, not already in their library. Existing combos already in their library for this protein (do not repeat these): ${p.combos.join(', ') || 'none yet'}.${profileCtx}${tasteContext}${foodLogContext}${historyCtx} Return only the idea names — no recipes, no explanation.`;
@@ -2002,7 +2015,7 @@ function profileSignals(){
   });
   return {
     notes: tasteNotes.map(n=>n.note),
-    saved: foodLogItems.map(i=>`${i.title} (${i.category})`),
+    saved: foodLogItems.map(foodLogItemLine),
     cooked, liked, disliked,
     current: availableCombos().map(c=>c.combo),
     avoid: (tasteProfile && tasteProfile.avoid) || [],

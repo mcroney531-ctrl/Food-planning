@@ -209,3 +209,32 @@ do $$ begin
   create policy food_dietitian_chat_update on public.food_dietitian_chat
     for update to anon, authenticated using (true) with check (true);
 exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------------------
+-- 6. food_discover_feedback — thumbs up/down on Discover ideas.
+--    Append-only signal log, not a piece of content anyone edits — no update
+--    policy, unlike every other food_ table. A thumbs-down also triggers an
+--    immediate one-idea replacement client-side; this table is what lets that
+--    preference actually carry forward into later batches instead of being
+--    forgotten the moment the card is replaced.
+-- ---------------------------------------------------------------------------
+create table if not exists public.food_discover_feedback (
+  id         bigint generated always as identity primary key,
+  title      text not null,
+  category   text not null,
+  blurb      text,
+  liked      boolean not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.food_discover_feedback enable row level security;
+
+do $$ begin
+  create policy food_discover_feedback_select on public.food_discover_feedback
+    for select to anon, authenticated using (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_discover_feedback_insert on public.food_discover_feedback
+    for insert to anon, authenticated with check (true);
+exception when duplicate_object then null; end $$;

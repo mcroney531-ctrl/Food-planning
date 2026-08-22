@@ -170,6 +170,16 @@ alter table public.food_taste_profile
 alter table public.food_taste_profile
   add column if not exists prefer_not jsonb not null default '[]'::jsonb;
 
+-- Added later; safe to run on a table that already exists.
+-- Favorite recipes — user-asserted, like avoid/prefer_not, but a positive
+-- signal instead of a negative one: dishes already loved, plus why. This is
+-- meant to weigh heavily on brainstorming (Discover, Your Dietitian) where a
+-- favorite's flavors/format/texture are real material for new ideas — not on
+-- weekly protein/combo scheduling, where a favorite dish often isn't a fit
+-- for whatever protein is actually on hand that week.
+alter table public.food_taste_profile
+  add column if not exists favorites jsonb not null default '[]'::jsonb;  -- [{title, note}, ...]
+
 -- ---------------------------------------------------------------------------
 -- 5. food_dietitian_chat — Your Dietitian's single ongoing conversation.
 --    Superseded food_chat_histories (dropped — 0 rows, never shipped) once

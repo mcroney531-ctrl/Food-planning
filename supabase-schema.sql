@@ -181,11 +181,11 @@ alter table public.food_taste_profile
   add column if not exists favorites jsonb not null default '[]'::jsonb;  -- [{title, note}, ...]
 
 -- ---------------------------------------------------------------------------
--- 5. food_dietitian_chat — Your Dietitian's single ongoing conversation.
---    Superseded food_chat_histories (dropped — 0 rows, never shipped) once
---    Chat stopped being scoped to a protein and became one freeform thread
---    you can bring anything food-related to. Singleton row, same pattern as
---    food_taste_profile: one person, one conversation.
+-- 5. food_dietitian_chat — SUPERSEDED, kept only because it holds real
+--    history (10 messages) that was migrated forward, not dropped. Your
+--    Dietitian moved from one singleton conversation to a real multi-
+--    conversation sidebar (see food_dietitian_conversations, #7 below) —
+--    nothing in the app reads or writes this table anymore.
 -- ---------------------------------------------------------------------------
 create table if not exists public.food_dietitian_chat (
   id         int primary key default 1 check (id = 1),
@@ -237,4 +237,37 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   create policy food_discover_feedback_insert on public.food_discover_feedback
     for insert to anon, authenticated with check (true);
+exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------------------
+-- 7. food_dietitian_conversations — Your Dietitian, for real this time: a
+--    sidebar of named, switchable conversations instead of one endless
+--    thread. Replaces the food_dietitian_chat singleton (#5, superseded not
+--    dropped — its 10 messages were migrated into a 'migrated_1' row here so
+--    the actual history wasn't lost in the switch).
+-- ---------------------------------------------------------------------------
+create table if not exists public.food_dietitian_conversations (
+  id         text primary key,                          -- client uid(), same format as food_log_items
+  title      text not null default 'New conversation',  -- auto-set from the first message, user-renamable
+  messages   jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  archived   boolean not null default false
+);
+
+alter table public.food_dietitian_conversations enable row level security;
+
+do $$ begin
+  create policy food_dietitian_conversations_select on public.food_dietitian_conversations
+    for select to anon, authenticated using (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_dietitian_conversations_insert on public.food_dietitian_conversations
+    for insert to anon, authenticated with check (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create policy food_dietitian_conversations_update on public.food_dietitian_conversations
+    for update to anon, authenticated using (true) with check (true);
 exception when duplicate_object then null; end $$;

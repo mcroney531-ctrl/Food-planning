@@ -575,6 +575,7 @@
     display:flex;
   }
   #view-chat{
+    position:relative;   /* anchors the conversation sidebar overlay */
     display:flex;
     flex-direction:column;
     width:100%;
@@ -602,6 +603,98 @@
     font-size:13px;
     line-height:1.55;
     color:var(--muted);
+  }
+  /* Conversation sidebar — overlays the chat rather than pushing it over,
+     same collapsible-panel pattern as the drawer itself used to be before
+     it went full-screen, just scoped to #view-chat instead of the page. */
+  .chat-sidebar-backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(20,107,56,0.35);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease;
+    z-index:5;
+  }
+  .chat-sidebar-backdrop.open{ opacity:1; pointer-events:auto; }
+  .chat-sidebar{
+    position:absolute;
+    top:0; bottom:0; left:0;
+    width:min(260px, 82%);
+    background:#fff;
+    border-right:1px solid var(--line);
+    transform:translateX(-100%);
+    transition:transform .22s ease;
+    z-index:6;
+    display:flex;
+    flex-direction:column;
+    box-shadow:8px 0 20px rgba(20,107,56,0.14);
+  }
+  .chat-sidebar.open{ transform:translateX(0); }
+  .chat-sidebar-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:14px;
+    border-bottom:1px solid var(--line);
+    font-size:12px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.5px;
+    color:var(--muted);
+    flex-shrink:0;
+  }
+  .chat-sidebar-new{
+    background:#EAF7EF;
+    border:1px solid #BFE3CC;
+    border-radius:var(--r-sm);
+    color:#1E9E52;
+    font-size:11.5px;
+    font-weight:700;
+    font-family:inherit;
+    text-transform:none;
+    letter-spacing:normal;
+    padding:5px 10px;
+    cursor:pointer;
+  }
+  .chat-sidebar-list{ flex:1; overflow-y:auto; padding:8px; }
+  .conv-item{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding:10px 10px;
+    border-radius:var(--r-sm);
+    cursor:pointer;
+    font-size:13px;
+    color:var(--text);
+    margin-bottom:2px;
+  }
+  .conv-item:hover{ background:var(--panel); }
+  .conv-item.active{ background:#EAF7EF; color:var(--brand-dark); font-weight:600; }
+  .conv-item .conv-title{
+    flex:1;
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .conv-item .conv-rename-btn{
+    flex-shrink:0;
+    color:var(--muted);
+    font-size:13px;
+    cursor:pointer;
+    padding:2px 4px;
+  }
+  .conv-item .conv-rename-btn:hover{ color:var(--accent); }
+  .conv-rename-input{
+    flex:1;
+    min-width:0;
+    border:1.5px solid var(--accent);
+    border-radius:6px;
+    padding:3px 6px;
+    font-size:13px;
+    font-family:inherit;
   }
   .msg{
     max-width:85%;
@@ -1172,6 +1265,7 @@
 
 <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true">
   <div class="drawer-head">
+    <button class="drawer-icon" id="chatSidebarToggle" aria-label="Conversations" hidden>☰</button>
     <h3 id="drawerTitle"></h3>
     <button class="drawer-icon" id="drawerClose" aria-label="Close">✕</button>
   </div>
@@ -1248,8 +1342,15 @@ let dayPlan = {};          // 'MON' -> combo string (Sunday is the plan day)
 let selectedBreakfasts = new Set();
 let stockedItems = new Set();
 let surpriseBusy = new Set(); // protein ids currently waiting on a Surprise Me call
-let dietitianHistory = []; // Your Dietitian — one global conversation, not protein-scoped
-const LS_DIETITIAN = 'sw_dietitian_chat_v1';
+// Your Dietitian — a sidebar of named conversations (like a real chat app)
+// instead of one endless thread. dietitianHistory stays the name for "the
+// active conversation's messages" since everything downstream (sending,
+// rendering, saving an idea) only ever needs to know about the one in front
+// of you right now — conversations[] and activeConversationId are what's new.
+let dietitianConversations = []; // [{id, title, messages, updated_at}]
+let activeConversationId = null;
+let dietitianHistory = [];
+const LS_DIETITIAN = 'sw_dietitian_conversations_v1';
 let apiKey = null;
 try { apiKey = localStorage.getItem('sw_api_key'); } catch(e){}
 let tasteNotes = []; // array of {id, note}
@@ -1364,11 +1465,14 @@ function addTasteNote(){
 // make something at home, related ideas, whatever. A named idea worth
 // keeping saves straight to food_log_items, same as Discover — not to a
 // protein's combo list, since this conversation isn't protein-bound anymore.
+let chatSidebarOpen = false;
+
 function renderChatView(){
   const el = document.getElementById('chatBody');
   if(!el) return;
   el.innerHTML = '';
   el.className = 'chat-shell';
+  chatSidebarOpen = false;
 
   const chatLog = document.createElement('div');
   chatLog.className = 'chat-log';
@@ -1383,11 +1487,116 @@ function renderChatView(){
   `;
   el.appendChild(inputRow);
 
+  const backdrop = document.createElement('div');
+  backdrop.className = 'chat-sidebar-backdrop';
+  backdrop.id = 'chatSidebarBackdrop';
+  backdrop.onclick = ()=> toggleChatSidebar(false);
+  el.appendChild(backdrop);
+
+  const sidebar = document.createElement('aside');
+  sidebar.className = 'chat-sidebar';
+  sidebar.id = 'chatSidebar';
+  sidebar.innerHTML = `
+    <div class="chat-sidebar-head">
+      <span>Conversations</span>
+      <button class="chat-sidebar-new" id="chatSidebarNew">+ New</button>
+    </div>
+    <div class="chat-sidebar-list" id="chatSidebarList"></div>
+  `;
+  el.appendChild(sidebar);
+  document.getElementById('chatSidebarNew').onclick = startNewConversation;
+
+  renderChatSidebar();
   renderChatLog();
   const goBtn = document.getElementById('dietitian-go');
   const inputEl = document.getElementById('dietitian-input');
   if(goBtn) goBtn.onclick = sendDietitianMessage;
   if(inputEl) inputEl.onkeydown = (e)=>{ if(e.key==='Enter') sendDietitianMessage(); };
+}
+
+function toggleChatSidebar(open){
+  const sidebar = document.getElementById('chatSidebar');
+  const backdrop = document.getElementById('chatSidebarBackdrop');
+  if(!sidebar || !backdrop) return;
+  chatSidebarOpen = (open !== undefined) ? open : !chatSidebarOpen;
+  sidebar.classList.toggle('open', chatSidebarOpen);
+  backdrop.classList.toggle('open', chatSidebarOpen);
+}
+
+function renderChatSidebar(){
+  const list = document.getElementById('chatSidebarList');
+  if(!list) return;
+  list.innerHTML = '';
+  dietitianConversations.forEach(conv=>{
+    const item = document.createElement('div');
+    item.className = 'conv-item' + (conv.id === activeConversationId ? ' active' : '');
+    item.innerHTML = `
+      <span class="conv-title">${escapeHtml(conv.title || 'New conversation')}</span>
+      <span class="conv-rename-btn" title="Rename">✎</span>
+    `;
+    item.querySelector('.conv-title').onclick = ()=> switchConversation(conv.id);
+    item.querySelector('.conv-rename-btn').onclick = (e)=>{
+      e.stopPropagation();
+      startRenameConversation(conv.id, item);
+    };
+    list.appendChild(item);
+  });
+}
+
+function startRenameConversation(id, itemEl){
+  const conv = dietitianConversations.find(c=>c.id===id);
+  if(!conv) return;
+  const titleSpan = itemEl.querySelector('.conv-title');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'conv-rename-input';
+  input.value = conv.title;
+  titleSpan.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = ()=>{
+    const v = input.value.trim();
+    if(v && v !== conv.title) renameConversation(id, v);
+    else renderChatSidebar();
+  };
+  input.onkeydown = (e)=>{ if(e.key==='Enter') commit(); if(e.key==='Escape') renderChatSidebar(); };
+  input.onblur = commit;
+}
+
+async function renameConversation(id, newTitle){
+  const conv = dietitianConversations.find(c=>c.id===id);
+  if(!conv) return;
+  conv.title = newTitle;
+  renderChatSidebar();
+  lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
+  const { error } = await sb.from('food_dietitian_conversations').update({ title: newTitle }).eq('id', id);
+  if(error) console.warn('Conversation rename not synced:', error.message);
+}
+
+function switchConversation(id){
+  if(id !== activeConversationId){
+    const conv = dietitianConversations.find(c=>c.id===id);
+    if(!conv) return;
+    activeConversationId = id;
+    dietitianHistory = conv.messages || [];
+    renderChatSidebar();
+    renderChatLog();
+    lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
+  }
+  toggleChatSidebar(false);
+}
+
+async function startNewConversation(){
+  const conv = { id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, title: 'New conversation', messages: [], updated_at: new Date().toISOString() };
+  dietitianConversations.unshift(conv);
+  activeConversationId = conv.id;
+  dietitianHistory = conv.messages;
+  renderChatSidebar();
+  renderChatLog();
+  toggleChatSidebar(false);
+  lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
+  const { error } = await sb.from('food_dietitian_conversations').insert(conv);
+  if(error) console.warn('New conversation not synced:', error.message);
 }
 
 function renderChatLog(){
@@ -1428,9 +1637,15 @@ async function sendDietitianMessage(){
     try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
   }
 
+  const activeConv = dietitianConversations.find(c=>c.id===activeConversationId);
+  if(activeConv && activeConv.title === 'New conversation' && dietitianHistory.length === 0){
+    activeConv.title = text.length > 40 ? text.slice(0, 40).trim() + '…' : text;
+    renderChatSidebar();
+  }
+
   dietitianHistory.push({ role:'user', text });
   input.value = '';
-  persistDietitianHistory();
+  saveActiveConversation();
   dietitianHistory.push({ role:'assistant thinking', text:'...' });
   renderChatLog();
 
@@ -1482,12 +1697,12 @@ async function sendDietitianMessage(){
     dietitianHistory.pop(); // remove thinking placeholder
     dietitianHistory.push({ role:'assistant', text: displayText || raw, ideas });
     renderChatLog();
-    persistDietitianHistory();
+    saveActiveConversation();
   } catch(err){
     dietitianHistory.pop();
     dietitianHistory.push({ role:'assistant', text: "Couldn't reach Claude — check your API key and try again." });
     renderChatLog();
-    persistDietitianHistory();
+    saveActiveConversation();
   }
 }
 
@@ -1509,7 +1724,7 @@ async function saveDietitianIdea(mi, ii){
     return;
   }
   idea.saved = true;
-  persistDietitianHistory();
+  saveActiveConversation();
   foodLogItems.unshift({ title: row.title, category: row.category, recipe: row.recipe });
   if(savedRecipes) savedRecipes.unshift({ id: row.id, title: row.title, category: row.category, source_url: null });
   renderChatLog();
@@ -1517,37 +1732,49 @@ async function saveDietitianIdea(mi, ii){
   toast(`Saved "${idea.title}" to your recipes.`);
 }
 
-// Same localStorage-first + Supabase-upsert pattern as everything else in
-// this app, singleton row like the taste profile. Only the "thinking"
-// placeholder is dropped — a stale spinner left over from a page close
-// would be confusing on reload.
-async function persistDietitianHistory(){
-  const messages = dietitianHistory.filter(m => m.role === 'user' || m.role === 'assistant');
-  const updated_at = new Date().toISOString();
-  lsSet(LS_DIETITIAN, { messages, updated_at });
-  const { error } = await sb.from('food_dietitian_chat')
-    .upsert({ id: 1, messages, updated_at }, { onConflict: 'id' });
-  if(error) console.warn('Dietitian chat not synced:', error.message);
+// Supabase is the source of truth for the conversation list — localStorage
+// is purely an offline-read fallback here, not a two-way merge. A growing
+// list of rows doesn't have the same "one value, pick whichever is newer"
+// conflict shape the old singleton (food_dietitian_chat) did, so there's
+// nothing to reconcile: load what's remote, fall back to the local mirror
+// only if the network read comes back empty.
+async function saveActiveConversation(){
+  const conv = dietitianConversations.find(c=>c.id===activeConversationId);
+  if(!conv) return;
+  conv.messages = dietitianHistory.filter(m => m.role === 'user' || m.role === 'assistant');
+  conv.updated_at = new Date().toISOString();
+  // Most-recently-active conversation floats to the top of the sidebar.
+  dietitianConversations = [conv, ...dietitianConversations.filter(c=>c.id!==conv.id)];
+  lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
+  const { error } = await sb.from('food_dietitian_conversations')
+    .upsert({ id: conv.id, title: conv.title, messages: conv.messages, updated_at: conv.updated_at }, { onConflict: 'id' });
+  if(error) console.warn('Conversation not synced:', error.message);
 }
 
-async function loadDietitianHistory(){
-  const local = lsGet(LS_DIETITIAN);
-  if(local) dietitianHistory = local.messages || [];
+async function loadDietitianConversations(){
+  const { data, error } = await sb.from('food_dietitian_conversations')
+    .select('id, title, messages, updated_at')
+    .eq('archived', false)
+    .order('updated_at', { ascending: false });
 
-  const { data, error } = await sb.from('food_dietitian_chat').select('messages, updated_at').eq('id', 1).maybeSingle();
-  if(error || !data) return;
-
-  // Remote wins only when it's actually newer — same lesson as the taste profile.
-  if(!local || new Date(data.updated_at || 0) >= new Date(local.updated_at || 0)){
-    dietitianHistory = data.messages || [];
-    lsSet(LS_DIETITIAN, { messages: dietitianHistory, updated_at: data.updated_at });
-  } else if(local.messages && local.messages.length){
-    // Chatted before the table existed (or while offline): push it up instead
-    // of stranding it on one device.
-    sb.from('food_dietitian_chat')
-      .upsert({ id: 1, messages: local.messages, updated_at: local.updated_at || new Date().toISOString() }, { onConflict: 'id' })
-      .then(({ error:e })=>{ if(e) console.warn('Dietitian chat backfill failed:', e.message); });
+  if(!error && data && data.length){
+    dietitianConversations = data;
+  } else {
+    const local = lsGet(LS_DIETITIAN);
+    dietitianConversations = (local && local.conversations) || [];
   }
+
+  if(!dietitianConversations.length){
+    // Brand new — seed one empty conversation so there's always something to
+    // land on, same as opening a fresh chat app for the first time.
+    const conv = { id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, title: 'New conversation', messages: [], updated_at: new Date().toISOString() };
+    dietitianConversations = [conv];
+    sb.from('food_dietitian_conversations').insert(conv).then(({ error:e })=>{ if(e) console.warn('Initial conversation not synced:', e.message); });
+  }
+
+  activeConversationId = dietitianConversations[0].id;
+  dietitianHistory = dietitianConversations[0].messages || [];
+  lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
 }
 
 // ---------- DISCOVER ----------
@@ -3469,6 +3696,7 @@ function showView(name){
     v.hidden = (v.id !== 'view-' + name);
   });
   document.getElementById('drawerTitle').textContent = VIEW_TITLES[name] || '';
+  document.getElementById('chatSidebarToggle').hidden = (name !== 'chat');
   document.querySelector('.drawer-body').scrollTop = 0;
   if(name === 'recipes' && savedRecipes === null) loadSavedRecipes();
   if(name === 'history') renderHistoryView();
@@ -3495,6 +3723,7 @@ function closeDrawer(){
 }
 
 document.getElementById('drawerClose').onclick = closeDrawer;
+document.getElementById('chatSidebarToggle').onclick = ()=> toggleChatSidebar();
 document.querySelectorAll('.banner-item').forEach(btn=>{
   btn.onclick = ()=> openDrawer(btn.dataset.view);
 });
@@ -3516,7 +3745,7 @@ async function init(){
   try { await loadWeek(); } catch(e){ console.warn('Week failed to load:', e); remoteWeekOk = false; }
   try { await loadHistory(); } catch(e){ console.warn('History failed to load:', e); }
   try { await loadTasteProfile(); } catch(e){ console.warn('Taste profile failed to load:', e); }
-  try { await loadDietitianHistory(); } catch(e){ console.warn('Dietitian chat failed to load:', e); }
+  try { await loadDietitianConversations(); } catch(e){ console.warn('Dietitian conversations failed to load:', e); }
   try { loadDiscoverFeed(); } catch(e){ console.warn('Discover feed failed to load:', e); }
   hydrated = true;                // saving is armed only after the load settles
   renderAll();

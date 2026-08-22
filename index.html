@@ -754,27 +754,78 @@
     padding:var(--sp-2) 20px var(--sp-5);
   }
 
-  /* ---------- Meatball + drawer ---------- */
-  .meatball{
-    position:absolute;
-    top:24px; right:18px;
-    z-index:2;               /* above the decorative header circle */
-    width:40px; height:40px;
-    border:none;
-    border-radius:8px;
-    background:rgba(255,255,255,0.12);
-    color:#fff;
-    font-size:19px;
-    letter-spacing:1px;
-    line-height:1;
-    cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    padding:0 0 4px;         /* optically centers the baseline dots */
+  /* ---------- Top banner + drawer ---------- */
+  /* Sticky so Discover/Your Dietitian stay reachable while scrolling through
+     a long list of proteins/breakfasts/stock — the whole reason this
+     replaced a hamburger you had to remember was there. */
+  .top-banner{
+    position:sticky;
+    top:0;
+    z-index:10;
+    background:var(--bg);
+    border-bottom:1px solid var(--line);
+    padding:8px 10px;
   }
-  .meatball:hover{ background:rgba(255,255,255,0.22); }
-  .meatball:active{ transform:scale(0.94); }
+  .top-banner-inner{
+    display:flex;
+    gap:6px;
+    max-width:720px;
+    margin:0 auto;
+  }
+  .banner-item{
+    flex:1;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+    text-align:center;
+    border:1.5px solid transparent;
+    border-radius:var(--r-sm);
+    background:transparent;
+    padding:8px 4px;
+    font-family:inherit;
+    cursor:pointer;
+    transition:background-color .18s var(--ease), border-color .18s var(--ease);
+  }
+  .banner-item:hover{ background:var(--panel); }
+  .banner-item.active{
+    background:#EAF7EF;
+    border-color:var(--brand);
+  }
+  .banner-item .bi-emoji{ font-size:18px; line-height:1; }
+  .banner-item .bi-text{ display:flex; flex-direction:column; }
+  .banner-item .bi-title{
+    font-size:11px;
+    font-weight:700;
+    color:var(--text);
+    line-height:1.25;
+  }
+  .banner-item.active .bi-title{ color:var(--brand-dark); }
+  .banner-item .bi-sub{
+    display:none;   /* shown at wider viewports below */
+    font-size:11px;
+    color:var(--muted);
+    line-height:1.3;
+    margin-top:1px;
+  }
+  /* Wide enough for the mock's fuller tile (icon + title + subtext side by
+     side) — phone widths stay compressed to icon-over-label per row. */
+  @media (min-width:640px){
+    .top-banner{ padding:10px 16px; }
+    .top-banner-inner{ gap:10px; }
+    .banner-item{
+      flex-direction:row;
+      align-items:center;
+      justify-content:flex-start;
+      text-align:left;
+      gap:10px;
+      padding:10px 14px;
+    }
+    .banner-item .bi-emoji{ font-size:22px; }
+    .banner-item .bi-title{ font-size:14px; }
+    .banner-item .bi-sub{ display:block; }
+  }
 
   .scrim{
     position:fixed;
@@ -839,38 +890,6 @@
     padding:14px;
   }
   .drawer-view[hidden]{ display:none; }
-
-  .menu-item{
-    width:100%;
-    display:flex;
-    align-items:center;
-    gap:12px;
-    margin-bottom:10px;
-    padding:14px;
-    background:var(--panel);
-    border:1px solid var(--line);
-    border-radius:var(--r-md);
-    font-family:inherit;
-    font-size:14px;
-    font-weight:600;
-    color:var(--brand);
-    text-align:left;
-    cursor:pointer;
-    box-shadow:var(--shadow-sm);
-    transition:transform .18s var(--ease), border-color .18s var(--ease);
-  }
-  .menu-item:hover{ border-color:var(--accent); }
-  .menu-item:active{ transform:scale(0.99); }
-  .menu-item .mi-emoji{ font-size:17px; flex-shrink:0; }
-  .menu-item .mi-text{ flex:1; }
-  .menu-item .mi-sub{
-    display:block;
-    margin-top:2px;
-    font-size:11px;
-    font-weight:400;
-    color:var(--muted);
-  }
-  .menu-item .mi-chev{ color:var(--accent); font-size:16px; flex-shrink:0; }
 
   .drawer-empty{
     display:flex;
@@ -1017,8 +1036,32 @@
 <header>
   <h1>Sunday Setup</h1>
   <p>Decide once. Execute all week.</p>
-  <button class="meatball" id="meatball" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">···</button>
 </header>
+
+<nav class="top-banner" id="topBanner">
+  <div class="top-banner-inner">
+    <button class="banner-item" data-view="discover">
+      <span class="bi-emoji">🔮</span>
+      <span class="bi-text"><span class="bi-title">Discover</span><span class="bi-sub">Fresh ideas from your taste profile</span></span>
+    </button>
+    <button class="banner-item" data-view="taste">
+      <span class="bi-emoji">🧭</span>
+      <span class="bi-text"><span class="bi-title">Taste profile</span><span class="bi-sub">What you like, and the notes behind it</span></span>
+    </button>
+    <button class="banner-item" data-view="chat">
+      <span class="bi-emoji">💬</span>
+      <span class="bi-text"><span class="bi-title">Your Dietitian</span><span class="bi-sub">Talk through anything food-related</span></span>
+    </button>
+    <button class="banner-item" data-view="history">
+      <span class="bi-emoji">🗓️</span>
+      <span class="bi-text"><span class="bi-title">Past weeks</span><span class="bi-sub">What you've already eaten</span></span>
+    </button>
+    <button class="banner-item" data-view="recipes">
+      <span class="bi-emoji">📗</span>
+      <span class="bi-text"><span class="bi-title">Saved recipes</span><span class="bi-sub">Everything in your Food Log</span></span>
+    </button>
+  </div>
+</nav>
 
 <div class="weekstrip" id="weekstrip"></div>
 <div class="week-actions" id="weekActions"></div>
@@ -1086,42 +1129,13 @@
 
 <div class="scrim" id="scrim"></div>
 
-<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Menu" aria-hidden="true">
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true">
   <div class="drawer-head">
-    <button class="drawer-icon" id="drawerBack" aria-label="Back" hidden>‹</button>
-    <h3 id="drawerTitle">Menu</h3>
-    <button class="drawer-icon" id="drawerClose" aria-label="Close menu">✕</button>
+    <h3 id="drawerTitle"></h3>
+    <button class="drawer-icon" id="drawerClose" aria-label="Close">✕</button>
   </div>
 
   <div class="drawer-body">
-
-    <div class="drawer-view" id="view-menu">
-      <button class="menu-item" data-view="discover">
-        <span class="mi-emoji">🔮</span>
-        <span class="mi-text">Discover<span class="mi-sub">Fresh ideas from your taste profile</span></span>
-        <span class="mi-chev">›</span>
-      </button>
-      <button class="menu-item" data-view="taste">
-        <span class="mi-emoji">🧭</span>
-        <span class="mi-text">Taste profile<span class="mi-sub">What you like, and the notes behind it</span></span>
-        <span class="mi-chev">›</span>
-      </button>
-      <button class="menu-item" data-view="chat">
-        <span class="mi-emoji">💬</span>
-        <span class="mi-text">Your Dietitian<span class="mi-sub">Talk through anything food-related</span></span>
-        <span class="mi-chev">›</span>
-      </button>
-      <button class="menu-item" data-view="history">
-        <span class="mi-emoji">🗓️</span>
-        <span class="mi-text">Past weeks<span class="mi-sub">What you've already eaten</span></span>
-        <span class="mi-chev">›</span>
-      </button>
-      <button class="menu-item" data-view="recipes">
-        <span class="mi-emoji">📗</span>
-        <span class="mi-text">Saved recipes<span class="mi-sub">Everything in your Food Log</span></span>
-        <span class="mi-chev">›</span>
-      </button>
-    </div>
 
     <div class="drawer-view" id="view-discover" hidden>
       <div class="sub">General ideas that fit your taste profile — not tied to a specific protein. Tap one to save it straight to your recipes.</div>
@@ -3400,18 +3414,18 @@ function addRecipeToPlan(recipe){
 }
 
 // ---------- DRAWER ----------
-const VIEW_TITLES = { menu:'Menu', discover:'Discover', taste:'Taste profile', chat:'Your Dietitian', history:'Past weeks', recipes:'Saved recipes' };
+const VIEW_TITLES = { discover:'Discover', taste:'Taste profile', chat:'Your Dietitian', history:'Past weeks', recipes:'Saved recipes' };
 const drawer = document.getElementById('drawer');
 const scrim = document.getElementById('scrim');
-const meatball = document.getElementById('meatball');
-const drawerBack = document.getElementById('drawerBack');
 
+// The top banner replaced the meatball + menu-list entry point — every
+// destination is a direct tap now, so showView() is only ever called with
+// one of the five real views, never a "menu" placeholder to back out to.
 function showView(name){
   document.querySelectorAll('.drawer-view').forEach(v => {
     v.hidden = (v.id !== 'view-' + name);
   });
-  document.getElementById('drawerTitle').textContent = VIEW_TITLES[name] || 'Menu';
-  drawerBack.hidden = (name === 'menu');
+  document.getElementById('drawerTitle').textContent = VIEW_TITLES[name] || '';
   document.querySelector('.drawer-body').scrollTop = 0;
   if(name === 'recipes' && savedRecipes === null) loadSavedRecipes();
   if(name === 'history') renderHistoryView();
@@ -3420,30 +3434,29 @@ function showView(name){
   if(name === 'discover') renderDiscoverView();
 }
 
-function openDrawer(){
-  showView('menu');
+function openDrawer(name){
+  showView(name);
   drawer.classList.add('open');
   scrim.classList.add('open');
   drawer.setAttribute('aria-hidden','false');
-  meatball.setAttribute('aria-expanded','true');
   document.body.classList.add('drawer-open');
+  document.querySelectorAll('.banner-item').forEach(b=>{
+    b.classList.toggle('active', b.dataset.view === name);
+  });
 }
 
 function closeDrawer(){
   drawer.classList.remove('open');
   scrim.classList.remove('open');
   drawer.setAttribute('aria-hidden','true');
-  meatball.setAttribute('aria-expanded','false');
   document.body.classList.remove('drawer-open');
-  meatball.focus();
+  document.querySelectorAll('.banner-item').forEach(b=> b.classList.remove('active'));
 }
 
-meatball.onclick = openDrawer;
 scrim.onclick = closeDrawer;
 document.getElementById('drawerClose').onclick = closeDrawer;
-drawerBack.onclick = ()=> showView('menu');
-document.querySelectorAll('.menu-item').forEach(btn=>{
-  btn.onclick = ()=> showView(btn.dataset.view);
+document.querySelectorAll('.banner-item').forEach(btn=>{
+  btn.onclick = ()=> openDrawer(btn.dataset.view);
 });
 document.getElementById('buildListBtn').onclick = buildGroceryList;
 document.getElementById('daySheetClose').onclick = closeSheet;

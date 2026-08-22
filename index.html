@@ -945,6 +945,18 @@
     margin-top:4px;
   }
   .discover-refresh{ margin-bottom:14px; }
+  .discover-actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
+  .discover-actions .recipe-add{ margin-top:0; }
+  .discover-recipe-body{
+    margin-top:10px;
+    padding:10px 12px;
+    background:#F5F0FF;
+    border:1px solid #E4DBF7;
+    border-radius:10px;
+    font-size:12.5px;
+    line-height:1.6;
+    color:var(--text);
+  }
 
   body.drawer-open{ overflow:hidden; }
 
@@ -1383,7 +1395,7 @@ async function saveDietitianIdea(mi, ii){
   }
   idea.saved = true;
   persistDietitianHistory();
-  foodLogItems.unshift({ title: row.title, category: row.category });
+  foodLogItems.unshift({ title: row.title, category: row.category, recipe: row.recipe });
   if(savedRecipes) savedRecipes.unshift({ id: row.id, title: row.title, category: row.category, source_url: null });
   renderChatLog();
   if(savedRecipes) renderSavedRecipes();
@@ -1477,16 +1489,24 @@ function renderDiscoverView(){
   discoverIdeas.forEach((idea, i)=>{
     const card = document.createElement('div');
     card.className = 'recipe-item' + (idea.saved ? ' saved' : '');
+    const recipeBtnLabel = idea.recipeBusy ? '✨ Writing…' : (idea.recipe ? (idea.showRecipe ? '▲ Hide recipe' : '🍳 Recipe') : '🍳 Get the recipe');
     card.innerHTML = `
       <div class="rt">${escapeHtml(idea.title)}</div>
       <div class="recipe-meta"><span class="recipe-cat">${escapeHtml(idea.category)}</span></div>
       <div class="discover-blurb">${escapeHtml(idea.blurb)}</div>
-      <button class="recipe-add discover-save" data-i="${i}" ${idea.saved ? 'disabled' : ''}>${idea.saved ? '✓ Saved' : '+ Save to recipes'}</button>
+      <div class="discover-actions">
+        <button class="recipe-add discover-save" data-i="${i}" ${idea.saved ? 'disabled' : ''}>${idea.saved ? '✓ Saved' : '+ Save to recipes'}</button>
+        <button class="recipe-add discover-recipe-btn" data-i="${i}" ${idea.recipeBusy ? 'disabled' : ''}>${recipeBtnLabel}</button>
+      </div>
+      ${idea.recipe && idea.showRecipe ? `<div class="discover-recipe-body">${escapeHtml(idea.recipe).replace(/\n/g,'<br>')}</div>` : ''}
     `;
     el.appendChild(card);
   });
   el.querySelectorAll('.discover-save').forEach(btn=>{
     btn.onclick = ()=> saveDiscoverIdea(parseInt(btn.dataset.i));
+  });
+  el.querySelectorAll('.discover-recipe-btn').forEach(btn=>{
+    btn.onclick = ()=> getDiscoverRecipe(parseInt(btn.dataset.i));
   });
 }
 
@@ -1566,7 +1586,7 @@ async function saveDiscoverIdea(i){
     title: idea.title,
     category: idea.category,
     image: null,
-    recipe: idea.blurb || '',
+    recipe: idea.recipe || idea.blurb || '',
     calories: null,
     source_url: null,
   };
@@ -1577,11 +1597,77 @@ async function saveDiscoverIdea(i){
   }
   idea.saved = true;
   saveDiscoverFeed();
-  foodLogItems.unshift({ title: row.title, category: row.category });
+  foodLogItems.unshift({ title: row.title, category: row.category, recipe: row.recipe });
   if(savedRecipes) savedRecipes.unshift({ id: row.id, title: row.title, category: row.category, source_url: null });
   renderDiscoverView();
   if(savedRecipes) renderSavedRecipes();
   toast(`Saved "${idea.title}" to your recipes.`);
+}
+
+// Expand a Discover idea into a real recipe — the alternative to wiring up a
+// third-party recipe API considered and shelved earlier: since the idea's
+// title is something Claude just invented, not a dish pulled from a fixed
+// database, having Claude write the recipe for its own idea guarantees a
+// match and needs no new vendor/key. Cached on the idea (not re-fetched on
+// re-open) and persisted with the rest of the feed.
+async function getDiscoverRecipe(i){
+  const idea = discoverIdeas[i];
+  if(!idea || idea.recipeBusy) return;
+  if(idea.recipe){ idea.showRecipe = !idea.showRecipe; renderDiscoverView(); return; }
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) return;
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+
+  idea.recipeBusy = true;
+  renderDiscoverView();
+
+  const profileCtx = profileContext();
+  const prompt_ = `Write a real, cookable recipe for "${idea.title}" (${idea.category}). ${idea.blurb}${profileCtx} Keep it realistic for a home cook on a weeknight, respecting any effort ceiling, equipment, or avoided methods above. Return a short ingredient list with quantities and numbered steps — no intro, no commentary.`;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-5",
+        max_tokens: 1200,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "low", format: { type:"json_schema", schema: {
+          type:'object',
+          properties:{
+            ingredients:{ type:'array', items:{type:'string'} },
+            steps:{ type:'array', items:{type:'string'} },
+          },
+          required:['ingredients','steps'],
+          additionalProperties:false,
+        }}},
+        messages: [{ role:"user", content: prompt_ }]
+      })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'API error');
+    if(data.stop_reason === 'refusal') throw new Error("Claude couldn't answer that one — try again.");
+    const textBlock = (data.content || []).find(c=>c.type==='text');
+    const parsed = JSON.parse(textBlock.text);
+    const ing = (parsed.ingredients || []).map(x=>`• ${x}`).join('\n');
+    const steps = (parsed.steps || []).map((x,n)=>`${n+1}. ${x}`).join('\n');
+    idea.recipe = `Ingredients:\n${ing}\n\nSteps:\n${steps}`;
+    idea.showRecipe = true;
+  } catch(err){
+    console.warn('Recipe expansion failed:', err);
+    toast('Could not write that recipe — ' + (err.message || 'try again.'), 'error');
+  } finally {
+    idea.recipeBusy = false;
+    saveDiscoverFeed();
+    renderDiscoverView();
+  }
 }
 
 // One-shot version of the chat brainstorm: no back-and-forth, just ask for a

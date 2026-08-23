@@ -587,6 +587,71 @@
     flex:1;
     min-height:0;
   }
+  .chat-main{
+    display:flex;
+    flex-direction:column;
+    flex:1;
+    min-height:0;
+  }
+  .chat-thread{
+    display:flex;
+    flex-direction:column;
+    flex:1;
+    min-height:0;
+  }
+  /* The home screen — opens every time you enter Your Dietitian, the same
+     way Claude's own "new chat" landing works. No conversation is active
+     here, so nothing in the sidebar shows as selected. */
+  .chat-home{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    flex:1;
+    gap:18px;
+    padding:24px;
+    text-align:center;
+  }
+  .chat-home-icon{ font-size:32px; line-height:1; }
+  .chat-home-greeting{
+    font-size:24px;
+    font-weight:700;
+    color:var(--text);
+  }
+  .chat-home-composer{
+    width:100%;
+    max-width:420px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:8px 8px 8px 16px;
+    box-shadow:var(--shadow-md);
+  }
+  .chat-home-input{
+    flex:1;
+    min-width:0;
+    border:none;
+    outline:none;
+    font-size:15px;
+    font-family:inherit;
+    background:transparent;
+    color:var(--text);
+  }
+  .chat-home-send{
+    flex-shrink:0;
+    background:var(--brand);
+    color:#fff;
+    border:none;
+    border-radius:var(--r-sm);
+    padding:9px 16px;
+    font-weight:700;
+    font-size:13px;
+    font-family:inherit;
+    cursor:pointer;
+  }
   .chat-log{
     flex:1;
     min-height:0;
@@ -1466,6 +1531,13 @@ function addTasteNote(){
 // keeping saves straight to food_log_items, same as Discover — not to a
 // protein's combo list, since this conversation isn't protein-bound anymore.
 let chatSidebarOpen = false;
+// Your Dietitian opens to a fresh-chat home screen every time, the way
+// Claude's own app does — resuming a past conversation is an explicit pick
+// from the sidebar, not the default. No conversation is "active" on this
+// screen; one only gets created (locally and in Supabase) once there's an
+// actual first message to put in it, so a fresh visit never leaves a phantom
+// empty conversation sitting in the sidebar.
+let chatHomeActive = true;
 
 function renderChatView(){
   const el = document.getElementById('chatBody');
@@ -1473,19 +1545,9 @@ function renderChatView(){
   el.innerHTML = '';
   el.className = 'chat-shell';
   chatSidebarOpen = false;
-
-  const chatLog = document.createElement('div');
-  chatLog.className = 'chat-log';
-  chatLog.id = 'dietitian-log';
-  el.appendChild(chatLog);
-
-  const inputRow = document.createElement('div');
-  inputRow.className = 'chat-input-row';
-  inputRow.innerHTML = `
-    <input type="text" class="ask-input" id="dietitian-input" placeholder="Ask about anything food-related...">
-    <button class="ask-go" id="dietitian-go">Send</button>
-  `;
-  el.appendChild(inputRow);
+  chatHomeActive = true;
+  activeConversationId = null;
+  dietitianHistory = [];
 
   const backdrop = document.createElement('div');
   backdrop.className = 'chat-sidebar-backdrop';
@@ -1504,14 +1566,97 @@ function renderChatView(){
     <div class="chat-sidebar-list" id="chatSidebarList"></div>
   `;
   el.appendChild(sidebar);
-  document.getElementById('chatSidebarNew').onclick = startNewConversation;
+  document.getElementById('chatSidebarNew').onclick = showChatHome;
+
+  const main = document.createElement('div');
+  main.className = 'chat-main';
+  main.id = 'chatMain';
+  el.appendChild(main);
 
   renderChatSidebar();
-  renderChatLog();
-  const goBtn = document.getElementById('dietitian-go');
-  const inputEl = document.getElementById('dietitian-input');
-  if(goBtn) goBtn.onclick = sendDietitianMessage;
-  if(inputEl) inputEl.onkeydown = (e)=>{ if(e.key==='Enter') sendDietitianMessage(); };
+  renderChatMain();
+}
+
+// Swaps between the home screen and an actual thread without rebuilding the
+// sidebar/backdrop around it — those stay put, only the content between
+// them changes.
+function renderChatMain(){
+  const main = document.getElementById('chatMain');
+  if(!main) return;
+  main.innerHTML = '';
+  if(chatHomeActive){
+    main.appendChild(buildChatHomeUI());
+  } else {
+    main.appendChild(buildChatThreadUI());
+    renderChatLog();
+  }
+}
+
+function greetingForNow(){
+  const h = new Date().getHours();
+  if(h < 12) return 'Morning thoughts';
+  if(h < 18) return 'Afternoon thoughts';
+  return 'Evening thoughts';
+}
+
+function buildChatHomeUI(){
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-home';
+  wrap.innerHTML = `
+    <div class="chat-home-icon">✨</div>
+    <div class="chat-home-greeting">${greetingForNow()}</div>
+    <div class="chat-home-composer">
+      <input type="text" class="chat-home-input" id="chatHomeInput" placeholder="Ask about anything food-related...">
+      <button class="chat-home-send" id="chatHomeSend">Send</button>
+    </div>
+  `;
+  const input = wrap.querySelector('#chatHomeInput');
+  const go = ()=> sendFromChatHome(input.value.trim());
+  wrap.querySelector('#chatHomeSend').onclick = go;
+  input.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
+  return wrap;
+}
+
+function buildChatThreadUI(){
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-thread';
+  wrap.innerHTML = `
+    <div class="chat-log" id="dietitian-log"></div>
+    <div class="chat-input-row">
+      <input type="text" class="ask-input" id="dietitian-input" placeholder="Ask about anything food-related...">
+      <button class="ask-go" id="dietitian-go">Send</button>
+    </div>
+  `;
+  wrap.querySelector('#dietitian-go').onclick = sendDietitianMessage;
+  wrap.querySelector('#dietitian-input').onkeydown = (e)=>{ if(e.key==='Enter') sendDietitianMessage(); };
+  return wrap;
+}
+
+// Typing straight into the home screen's composer starts a new conversation
+// implicitly — same as picking "+ New" then sending, just one step. Reuses
+// sendDietitianMessage() itself rather than duplicating the API call/title/
+// idea-parsing logic: it hands off to the now-visible thread input.
+function sendFromChatHome(text){
+  if(!text) return;
+  const conv = { id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, title: 'New conversation', messages: [], updated_at: new Date().toISOString() };
+  dietitianConversations.unshift(conv);
+  activeConversationId = conv.id;
+  dietitianHistory = conv.messages;
+  chatHomeActive = false;
+  renderChatSidebar();
+  renderChatMain();
+  const input = document.getElementById('dietitian-input');
+  if(input) input.value = text;
+  sendDietitianMessage();
+}
+
+function showChatHome(){
+  chatHomeActive = true;
+  activeConversationId = null;
+  dietitianHistory = [];
+  renderChatSidebar();
+  renderChatMain();
+  toggleChatSidebar(false);
 }
 
 function toggleChatSidebar(open){
@@ -1574,29 +1719,17 @@ async function renameConversation(id, newTitle){
 }
 
 function switchConversation(id){
-  if(id !== activeConversationId){
+  if(id !== activeConversationId || chatHomeActive){
     const conv = dietitianConversations.find(c=>c.id===id);
     if(!conv) return;
     activeConversationId = id;
     dietitianHistory = conv.messages || [];
+    chatHomeActive = false;
     renderChatSidebar();
-    renderChatLog();
+    renderChatMain();
     lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
   }
   toggleChatSidebar(false);
-}
-
-async function startNewConversation(){
-  const conv = { id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, title: 'New conversation', messages: [], updated_at: new Date().toISOString() };
-  dietitianConversations.unshift(conv);
-  activeConversationId = conv.id;
-  dietitianHistory = conv.messages;
-  renderChatSidebar();
-  renderChatLog();
-  toggleChatSidebar(false);
-  lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
-  const { error } = await sb.from('food_dietitian_conversations').insert(conv);
-  if(error) console.warn('New conversation not synced:', error.message);
 }
 
 function renderChatLog(){
@@ -1757,24 +1890,17 @@ async function loadDietitianConversations(){
     .eq('archived', false)
     .order('updated_at', { ascending: false });
 
-  if(!error && data && data.length){
+  if(!error && data){
     dietitianConversations = data;
   } else {
     const local = lsGet(LS_DIETITIAN);
     dietitianConversations = (local && local.conversations) || [];
   }
-
-  if(!dietitianConversations.length){
-    // Brand new — seed one empty conversation so there's always something to
-    // land on, same as opening a fresh chat app for the first time.
-    const conv = { id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, title: 'New conversation', messages: [], updated_at: new Date().toISOString() };
-    dietitianConversations = [conv];
-    sb.from('food_dietitian_conversations').insert(conv).then(({ error:e })=>{ if(e) console.warn('Initial conversation not synced:', e.message); });
-  }
-
-  activeConversationId = dietitianConversations[0].id;
-  dietitianHistory = dietitianConversations[0].messages || [];
-  lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
+  // No "seed an empty conversation" fallback anymore — Your Dietitian opens
+  // to the home screen regardless of whether any conversations exist yet,
+  // and the sidebar is simply empty until a first message actually creates
+  // one. No pre-selected active conversation either, for the same reason.
+  lsSet(LS_DIETITIAN, { conversations: dietitianConversations });
 }
 
 // ---------- DISCOVER ----------

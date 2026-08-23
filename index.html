@@ -1995,6 +1995,13 @@ function renderDiscoverView(){
   });
 }
 
+// Discover's actual job is extrapolation, not recombination — reported
+// symptom was ideas staying glued to the exact tags/dishes already in the
+// profile instead of reasoning outward from them. Shared by both the batch
+// generator and the single-idea replacement call below, since both are
+// "brainstorm something new" asks that can fall into the same trap.
+const DISCOVER_EXTRAPOLATION_NOTE = ` Reason about *why* they'd like what they like — the underlying flavor, texture, and format principles — then extrapolate outward: a good idea can use an ingredient, cuisine, or technique they've never mentioned once, as long as it plausibly satisfies that same underlying appeal. Don't just recombine their exact known tags into a new dish name — that's restating the profile back to them, not actually discovering something.`;
+
 // Shared by the batch generator and the single-idea replacement call below —
 // same ambient signals either way, just a different ask on top.
 function discoverAmbientContext(){
@@ -2020,7 +2027,7 @@ async function generateDiscoverIdeas(){
   discoverBusy = true;
   renderDiscoverView();
 
-  const prompt_ = `Suggest 6 specific meal, breakfast, or snack ideas for this person — general ideas, not tied to any one protein, that fit how they actually eat.${discoverAmbientContext()} For each idea return a short punchy title (2-6 words), a category (exactly one of "Breakfast", "Meals", "Snacks", "Misc"), and a one-sentence blurb on why it might land well for this person specifically.`;
+  const prompt_ = `Suggest 6 specific meal, breakfast, or snack ideas for this person — general ideas, not tied to any one protein, that fit how they actually eat.${DISCOVER_EXTRAPOLATION_NOTE}${discoverAmbientContext()} For each idea return a short punchy title (2-6 words), a category (exactly one of "Breakfast", "Meals", "Snacks", "Misc"), and a one-sentence blurb connecting it back to a specific known preference — what makes the leap plausible even though the dish itself may be unfamiliar.`;
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -2128,7 +2135,7 @@ async function dislikeDiscoverIdea(i){
     .filter((x, idx)=> idx !== i && x && x.title && !x.replacing)
     .map(x=>x.title);
   const othersCtx = others.length ? `\n\nAlready showing them these other ideas right now, don't repeat: ${others.join('; ')}.` : '';
-  const prompt_ = `Suggest exactly 1 new meal, breakfast, or snack idea for this person — general, not tied to a protein. They just passed on "${idea.title}" (${idea.category}: ${idea.blurb}) — give them something genuinely different, not a close variation on it.${discoverAmbientContext()}${othersCtx} Return a short punchy title (2-6 words), a category (exactly one of "Breakfast", "Meals", "Snacks", "Misc"), and a one-sentence blurb on why it might land well for this person specifically.`;
+  const prompt_ = `Suggest exactly 1 new meal, breakfast, or snack idea for this person — general, not tied to a protein. They just passed on "${idea.title}" (${idea.category}: ${idea.blurb}) — give them something genuinely different, not a close variation on it.${DISCOVER_EXTRAPOLATION_NOTE}${discoverAmbientContext()}${othersCtx} Return a short punchy title (2-6 words), a category (exactly one of "Breakfast", "Meals", "Snacks", "Misc"), and a one-sentence blurb connecting it back to a specific known preference — what makes the leap plausible even though the dish itself may be unfamiliar.`;
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {

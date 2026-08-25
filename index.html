@@ -1141,6 +1141,32 @@
     text-decoration:none;
   }
   .recipe-item a:hover{ text-decoration:underline; }
+  .recipe-import-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+    margin:12px 0;
+  }
+  .import-measure-toggle{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:12.5px;
+    color:var(--muted);
+    cursor:pointer;
+  }
+  .import-measure-toggle input{ accent-color:var(--brand); width:15px; height:15px; }
+  .recipe-section-label{
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:0.3px;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:14px 0 8px;
+  }
+  .recipe-section-label:first-child{ margin-top:0; }
   .recipe-add{
     margin-top:9px;
     padding:6px 12px;
@@ -1367,6 +1393,15 @@
 
     <div class="drawer-view" id="view-recipes" hidden>
       <div class="sub">Saved in Food Log. Read-only here — add and edit them over there.</div>
+      <div class="recipe-import-row">
+        <label class="import-measure-toggle">
+          <input type="checkbox" id="importMeasureToggle" checked>
+          <span>Include measurements</span>
+        </label>
+        <button class="ask-go" id="importVideoBtn">🎥 Import from video</button>
+        <input type="file" id="importVideoFile" accept="video/*" hidden>
+      </div>
+      <div class="ask-status" id="importStatus"></div>
       <div id="recipeList"></div>
     </div>
 
@@ -3751,7 +3786,7 @@ async function loadSavedRecipes(){
   // image is deliberately not selected — those are base64 data URLs and can be huge.
   const { data, error } = await sb
     .from('food_log_items')
-    .select('id, title, category, source_url')
+    .select('id, title, category, source_url, source')
     .eq('archived', false)
     .order('created_at', { ascending: false });
   if(error){
@@ -3763,6 +3798,18 @@ async function loadSavedRecipes(){
   renderSavedRecipes();
 }
 
+function renderRecipeItem(r, i){
+  const link = r.source_url
+    ? `<a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer">View original ↗</a>`
+    : '';
+  const cat = r.category ? `<span class="recipe-cat">${escapeHtml(r.category)}</span>` : '';
+  return `<div class="recipe-item">
+    <div class="rt">${escapeHtml(r.title)}</div>
+    <div class="recipe-meta">${cat}${link}</div>
+    <button class="recipe-add" data-i="${i}">+ Add to plan</button>
+  </div>`;
+}
+
 function renderSavedRecipes(){
   const el = document.getElementById('recipeList');
   if(!savedRecipes) return;
@@ -3770,17 +3817,11 @@ function renderSavedRecipes(){
     el.innerHTML = '<div class="drawer-empty"><span class="de-icon">📗</span>Nothing saved yet — add recipes in Food Log and they show up here.</div>';
     return;
   }
-  el.innerHTML = savedRecipes.map((r, i) => {
-    const link = r.source_url
-      ? `<a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer">View original ↗</a>`
-      : '';
-    const cat = r.category ? `<span class="recipe-cat">${escapeHtml(r.category)}</span>` : '';
-    return `<div class="recipe-item">
-      <div class="rt">${escapeHtml(r.title)}</div>
-      <div class="recipe-meta">${cat}${link}</div>
-      <button class="recipe-add" data-i="${i}">+ Add to plan</button>
-    </div>`;
-  }).join('');
+  const social = [], manual = [];
+  savedRecipes.forEach((r, i) => (r.source === 'social_video' ? social : manual).push(i));
+  el.innerHTML =
+    (social.length ? `<div class="recipe-section-label">🎥 Social media recipes</div>` + social.map(i => renderRecipeItem(savedRecipes[i], i)).join('') : '') +
+    (manual.length ? (social.length ? `<div class="recipe-section-label">Saved recipes</div>` : '') + manual.map(i => renderRecipeItem(savedRecipes[i], i)).join('') : '');
   el.querySelectorAll('.recipe-add').forEach(btn=>{
     btn.onclick = ()=> addRecipeToPlan(savedRecipes[parseInt(btn.dataset.i)]);
   });
@@ -3814,6 +3855,142 @@ function addRecipeToPlan(recipe){
       };
       body.appendChild(btn);
     });
+  });
+}
+
+// ---------- VIDEO RECIPE IMPORT ----------
+// Groq's Whisper endpoint takes an mp4 straight up (it just reads the audio
+// track), so there's no client-side extraction step — upload the file the
+// user saved from TikTok/Reels/Shorts and this handles the rest.
+let groqApiKey = null;
+try { groqApiKey = localStorage.getItem('sw_groq_api_key'); } catch(e){}
+
+function setImportStatus(msg, kind){
+  const el = document.getElementById('importStatus');
+  el.textContent = msg || '';
+  el.className = 'ask-status' + (kind ? ' ' + kind : '');
+}
+
+async function handleVideoImport(file){
+  if(!groqApiKey){
+    groqApiKey = prompt('Paste your Groq API key (for video transcription, stored locally on this device only):');
+    if(!groqApiKey) return;
+    try { localStorage.setItem('sw_groq_api_key', groqApiKey); } catch(e){}
+  }
+  const importBtn = document.getElementById('importVideoBtn');
+  importBtn.disabled = true;
+  setImportStatus('Transcribing video…');
+  let transcript;
+  try {
+    const form = new FormData();
+    form.append('file', file, file.name || 'video.mp4');
+    form.append('model', 'whisper-large-v3-turbo');
+    form.append('response_format', 'json');
+    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${groqApiKey}` },
+      body: form,
+    });
+    const json = await res.json().catch(()=> null);
+    if(!res.ok) throw new Error((json && json.error && json.error.message) || `transcription failed (${res.status})`);
+    transcript = ((json && json.text) || '').trim();
+  } catch(err){
+    setImportStatus(`Could not transcribe: ${err.message}`, 'error');
+    importBtn.disabled = false;
+    return;
+  }
+  if(!transcript){
+    setImportStatus('No speech detected in that video.', 'error');
+    importBtn.disabled = false;
+    return;
+  }
+  setImportStatus('Turning that into a recipe…');
+  try {
+    const measureOn = document.getElementById('importMeasureToggle').checked;
+    const recipe = await callVideoRecipeModel(transcript, measureOn);
+    setImportStatus('');
+    openRecipeReviewSheet(recipe);
+  } catch(err){
+    setImportStatus(`Could not build a recipe: ${err.message}`, 'error');
+  } finally {
+    importBtn.disabled = false;
+  }
+}
+
+const VIDEO_RECIPE_SCHEMA = {
+  type:'object',
+  properties:{
+    title:{ type:'string' },
+    category:{ type:'string' },
+    recipe:{ type:'string' },
+  },
+  required:['title','category','recipe'],
+  additionalProperties:false,
+};
+
+async function callVideoRecipeModel(transcript, measureOn){
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) throw new Error('no API key');
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+  const measureNote = measureOn
+    ? "Include measurements/quantities where the speaker states or clearly implies them, and make a reasonable estimate anywhere they don't — never leave a quantity out just because it wasn't said aloud."
+    : 'Skip exact measurements entirely — list ingredients plainly (e.g. "olive oil", "garlic", "chicken thighs") with no quantities, even where the speaker gave one.';
+  const prompt_ = `This is a spoken transcript from a short cooking video (TikTok/Reels/Shorts-style). It may be casual, out of order, or missing connective words a written recipe would have. Turn it into a clean, short recipe.\n\n${measureNote}\n\nGive a short title, a one-word-ish category (e.g. "Dinner", "Breakfast", "Dessert", "Snack"), and the recipe itself as one plain-text block — ingredients list, blank line, then numbered steps. Don't invent ingredients or steps the transcript doesn't support.\n\nTranscript:\n"""${transcript}"""`;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({
+      model:'claude-sonnet-5',
+      max_tokens:1200,
+      output_config:{ effort:'low', format:{ type:'json_schema', schema:VIDEO_RECIPE_SCHEMA } },
+      messages:[{ role:'user', content: prompt_ }],
+    })
+  });
+  const data = await res.json();
+  if(data.error) throw new Error(data.error.message || 'API error');
+  if(data.stop_reason === 'refusal') throw new Error('the request was declined.');
+  const block = (data.content||[]).find(b=>b.type==='text');
+  if(!block) throw new Error('empty response.');
+  try { return JSON.parse(block.text); }
+  catch(e){ throw new Error('the response came back malformed. Try again.'); }
+}
+
+function openRecipeReviewSheet(recipe){
+  openSheet('Review recipe', (body)=>{
+    body.innerHTML = `
+      <div class="ask-status">From a video transcript — check it over before saving.</div>
+      <input type="text" class="ask-input" id="reviewTitle" style="width:100%;margin-bottom:8px;" value="${escapeHtml(recipe.title||'')}" placeholder="Title">
+      <input type="text" class="ask-input" id="reviewCategory" style="width:100%;margin-bottom:8px;" value="${escapeHtml(recipe.category||'Misc')}" placeholder="Category">
+      <textarea class="grocery-out" id="reviewRecipe" style="min-height:180px;font-size:13px;line-height:1.6;">${escapeHtml(recipe.recipe||'')}</textarea>
+      <button class="ask-go" id="reviewSaveBtn" style="margin-top:10px;">Save to Social media recipes</button>
+    `;
+    body.querySelector('#reviewSaveBtn').onclick = async ()=>{
+      const title = body.querySelector('#reviewTitle').value.trim();
+      if(!title){ toast('Give it a title first.', 'warn'); return; }
+      const row = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        title,
+        category: body.querySelector('#reviewCategory').value.trim() || 'Misc',
+        image: null,
+        recipe: body.querySelector('#reviewRecipe').value,
+        calories: null,
+        source_url: null,
+        source: 'social_video',
+      };
+      const { error } = await sb.from('food_log_items').insert(row);
+      if(error){ toast('Could not save that — check your connection.', 'error'); return; }
+      if(savedRecipes) savedRecipes.unshift({ id: row.id, title: row.title, category: row.category, source_url: null, source: row.source });
+      if(savedRecipes) renderSavedRecipes();
+      closeSheet();
+      toast(`Saved "${title}" to Social media recipes.`);
+    };
   });
 }
 
@@ -3890,6 +4067,13 @@ init();
 
 document.getElementById('taste-go').onclick = addTasteNote;
 document.getElementById('taste-input').onkeydown = (e)=>{ if(e.key==='Enter') addTasteNote(); };
+
+document.getElementById('importVideoBtn').onclick = ()=> document.getElementById('importVideoFile').click();
+document.getElementById('importVideoFile').onchange = (e)=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(file) handleVideoImport(file);
+};
 </script>
 
 <!-- Service Worker -->

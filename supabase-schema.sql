@@ -271,3 +271,13 @@ do $$ begin
   create policy food_dietitian_conversations_update on public.food_dietitian_conversations
     for update to anon, authenticated using (true) with check (true);
 exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------------------
+-- 8. food_log_items.source — distinguishes how a saved recipe got here.
+--    'manual' (default) covers everything that predates this column: added
+--    in Food Log, or saved from a Discover/Dietitian idea. 'social_video'
+--    marks a recipe built by transcribing an uploaded TikTok/Reels/Shorts
+--    mp4 — Saved Recipes groups those into their own "Social media recipes"
+--    section instead of mixing them into the general list.
+-- ---------------------------------------------------------------------------
+alter table public.food_log_items add column if not exists source text not null default 'manual';

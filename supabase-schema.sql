@@ -281,3 +281,16 @@ exception when duplicate_object then null; end $$;
 --    section instead of mixing them into the general list.
 -- ---------------------------------------------------------------------------
 alter table public.food_log_items add column if not exists source text not null default 'manual';
+
+-- ---------------------------------------------------------------------------
+-- 9. food_dietitian_conversations.meal_list / .grocery_list — the running
+--    lists a "let's go grocery shopping" conversation builds up alongside
+--    the chat itself. meal_list is an array of {category, items:[{text,
+--    struck}]} — struck means "covered" (planned + ingredients handled),
+--    not rejected. grocery_list is a flat array of ingredient strings.
+--    Per-conversation by design, same as messages — a fresh planning thread
+--    starts with empty lists, an old one keeps whatever it built.
+-- ---------------------------------------------------------------------------
+alter table public.food_dietitian_conversations
+  add column if not exists meal_list jsonb not null default '[]'::jsonb,
+  add column if not exists grocery_list jsonb not null default '[]'::jsonb;

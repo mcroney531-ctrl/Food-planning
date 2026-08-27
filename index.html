@@ -779,8 +779,14 @@
     background:#EAF7EF;
     color:var(--text);
     border-bottom-left-radius:3px;
-    white-space:pre-wrap;
   }
+  .msg.assistant p{ margin:0 0 8px; }
+  .msg.assistant p:last-child{ margin-bottom:0; }
+  .msg.assistant ul, .msg.assistant ol{ margin:0 0 8px; padding-left:19px; }
+  .msg.assistant ul:last-child, .msg.assistant ol:last-child{ margin-bottom:0; }
+  .msg.assistant li{ margin-bottom:3px; }
+  .msg.assistant li:last-child{ margin-bottom:0; }
+  .msg.assistant strong{ font-weight:700; }
   .msg.assistant .add-idea{
     display:inline-block;
     margin:4px 4px 0 0;
@@ -1638,7 +1644,7 @@ function buildChatHomeUI(){
   const wrap = document.createElement('div');
   wrap.className = 'chat-home';
   wrap.innerHTML = `
-    <div class="chat-home-icon">✨</div>
+    <div class="chat-home-icon">🥑</div>
     <div class="chat-home-greeting">${greetingForNow()}</div>
     <div class="chat-home-composer">
       <input type="text" class="chat-home-input" id="chatHomeInput" placeholder="Ask about anything food-related...">
@@ -1767,6 +1773,25 @@ function switchConversation(id){
   toggleChatSidebar(false);
 }
 
+// Minimal markdown -> HTML: bold, bullet/numbered lists, paragraph breaks.
+// Claude's replies use these naturally; this just renders them instead of
+// showing the raw ** and - characters as literal text.
+function renderMarkdown(text){
+  const inline = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const blocks = String(text || '').split(/\n{2,}/);
+  return blocks.map(block=>{
+    const lines = block.split('\n').filter(l => l.trim() !== '');
+    if(!lines.length) return '';
+    if(lines.every(l => /^\s*[-*]\s+/.test(l))){
+      return '<ul>' + lines.map(l => `<li>${inline(l.replace(/^\s*[-*]\s+/, ''))}</li>`).join('') + '</ul>';
+    }
+    if(lines.every(l => /^\s*\d+\.\s+/.test(l))){
+      return '<ol>' + lines.map(l => `<li>${inline(l.replace(/^\s*\d+\.\s+/, ''))}</li>`).join('') + '</ol>';
+    }
+    return `<p>${lines.map(inline).join('<br>')}</p>`;
+  }).join('');
+}
+
 function renderChatLog(){
   const log = document.getElementById('dietitian-log');
   if(!log) return;
@@ -1774,24 +1799,17 @@ function renderChatLog(){
   if(!dietitianHistory.length){
     log.innerHTML = '<div class="chat-empty">Bring up anything food-related — a dish you love and why, how to make something at home, related ideas. Not scoped to a protein or the weekly plan.</div>';
   }
-  dietitianHistory.forEach((msg, mi)=>{
+  dietitianHistory.forEach((msg)=>{
     const div = document.createElement('div');
     div.className = 'msg ' + msg.role;
-    if(msg.role === 'assistant' && msg.ideas && msg.ideas.length){
-      div.innerHTML = msg.text.replace(/\n/g,'<br>') + '<br>' +
-        msg.ideas.map((idea, ii) => idea.saved
-          ? `<span class="add-idea saved">✓ ${escapeHtml(idea.title)}</span>`
-          : `<span class="add-idea" data-mi="${mi}" data-ii="${ii}">+ ${escapeHtml(idea.title)}</span>`
-        ).join('');
+    if(msg.role === 'assistant'){
+      div.innerHTML = renderMarkdown(msg.text);
     } else {
       div.textContent = msg.text;
     }
     log.appendChild(div);
   });
   log.scrollTop = log.scrollHeight;
-  log.querySelectorAll('.add-idea:not(.saved)').forEach(el=>{
-    el.onclick = ()=> saveDietitianIdea(parseInt(el.dataset.mi), parseInt(el.dataset.ii));
-  });
 }
 
 async function sendDietitianMessage(){
@@ -1823,7 +1841,11 @@ async function sendDietitianMessage(){
   const historyCtx = historyContext();
   const favs = favoritesContext();
   const favContext = favs ? `\n\nFavorite dishes this person has explicitly flagged as favorites, in their own words (strong signal — when a conversation touches one of these, or something like it, lean into what actually makes it work for them: the specific flavors, textures, format; that's real material for exploring why they like it, how to make it at home, or what's related): ${favs}.` : '';
-  const sysContext = `You're this person's personal dietitian and food companion — someone they can talk through anything food-related with, not a combo-idea generator scoped to one protein. They might mention a dish they love and want to explore why, ask how to make something at home, want related dishes, or just think out loud about food. Follow wherever it goes.${profileCtx}${tasteContext}${foodLogContext}${historyCtx}${favContext} Keep replies conversational — match their depth: brief for a quick question, more detail (including real recipe guidance) when they're actually asking for it. Your job here is inspiring exploration, not rearranging what's already known into new packaging — when you're offering multiple ideas, they should genuinely range, not all circle back to the same flavor or ingredient just because it's in the profile. If you name specific dishes worth remembering, end your reply with a line "IDEAS: " followed by a JSON array of objects like IDEAS: [{"title":"Potato Cheddar Chive Bake","category":"Breakfast"}] — category must be exactly one of "Breakfast", "Meals", "Snacks", "Misc". If nothing's worth naming as a keepable idea this reply, use IDEAS: [].`;
+  const sysContext = `You're this person's personal dietitian and food companion — someone they can talk through anything food-related with, not a combo-idea generator scoped to one protein. They might mention a dish they love and want to explore why, ask how to make something at home, want related dishes, or just think out loud about food. Follow wherever it goes.${profileCtx}${tasteContext}${foodLogContext}${historyCtx}${favContext} Keep replies conversational — match their depth: brief for a quick question, more detail (including real recipe guidance) when they're actually asking for it. Your job here is inspiring exploration, not rearranging what's already known into new packaging — when you're offering multiple ideas, they should genuinely range, not all circle back to the same flavor or ingredient just because it's in the profile.
+
+How you write: lead with the actual point, no "Great question!" or complimenting the question before answering it. Don't restate what they just said back to them. Markdown (bold, bullet/numbered lists) is available and renders properly, but write in prose by default — reach for a list only when the content is genuinely list-shaped (a real set of distinct options, steps, ingredients), not as a reflex for every reply. Casual and direct over formal. Don't end every reply with a tacked-on "Want me to [do the obvious next thing]?" question — that gets repetitive fast. Sometimes just land the thought and stop; sometimes a real follow-up question earns its place; sometimes let the next thread show up on its own without phrasing it as a formal offer. Vary it like an actual conversation would.
+
+If you name specific dishes worth remembering, end your reply with a line "IDEAS: " followed by a JSON array of objects like IDEAS: [{"title":"Potato Cheddar Chive Bake","category":"Breakfast"}] — category must be exactly one of "Breakfast", "Meals", "Snacks", "Misc". If nothing's worth naming as a keepable idea this reply, use IDEAS: []. This line is stripped before display, so it doesn't count as your reply's actual closing line.`;
 
   const apiMessages = dietitianHistory
     .filter(m => m.role === 'user' || m.role === 'assistant')

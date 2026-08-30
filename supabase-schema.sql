@@ -283,14 +283,30 @@ exception when duplicate_object then null; end $$;
 alter table public.food_log_items add column if not exists source text not null default 'manual';
 
 -- ---------------------------------------------------------------------------
--- 9. food_dietitian_conversations.meal_list / .grocery_list — the running
---    lists a "let's go grocery shopping" conversation builds up alongside
---    the chat itself. meal_list is an array of {category, items:[{text,
---    struck}]} — struck means "covered" (planned + ingredients handled),
---    not rejected. grocery_list is a flat array of ingredient strings.
---    Per-conversation by design, same as messages — a fresh planning thread
---    starts with empty lists, an old one keeps whatever it built.
+-- 9. food_dietitian_conversations.grocery_list — the running ingredient list
+--    a "let's go grocery shopping" conversation builds up alongside the chat
+--    itself. A flat array of strings. Per-conversation by design, same as
+--    messages — a fresh planning thread starts blank, an old one keeps
+--    whatever it built.
 -- ---------------------------------------------------------------------------
 alter table public.food_dietitian_conversations
-  add column if not exists meal_list jsonb not null default '[]'::jsonb,
   add column if not exists grocery_list jsonb not null default '[]'::jsonb;
+
+-- ---------------------------------------------------------------------------
+-- 10. food_week_plans.meals / .meals_reset_at — "This week's meals," the
+--     categorized meal list (Breakfast/Meals/Snacks/any custom category)
+--     that Your Dietitian builds via chat. Unlike grocery_list this is NOT
+--     per-conversation — it's one list for the whole week, shared across
+--     every conversation, living on the same weekly row the rest of the
+--     planner already uses. That's what gives it a free weekly archive:
+--     each week gets its own row, so last week's picks just sit there
+--     forever, readable the same way Past Weeks already reads day_plan.
+--     meals_reset_at is a second, shorter clock on top of that — once 5
+--     days pass since the list started getting built, it clears itself back
+--     to blank (client-checked on load, this app has no server-side cron),
+--     so stale mid-week brainstorming doesn't linger for the full 7 days.
+--     Same struck-means-covered convention as everything else here.
+-- ---------------------------------------------------------------------------
+alter table public.food_week_plans
+  add column if not exists meals jsonb not null default '[]'::jsonb,
+  add column if not exists meals_reset_at timestamptz;

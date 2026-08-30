@@ -288,6 +288,13 @@
     letter-spacing:0.8px;
     text-align:center;
   }
+  .week-meals-section{
+    background:#F5FBF7;
+    border:1px solid var(--line);
+    border-radius:var(--r-md);
+    padding:16px 16px 4px;
+  }
+  .week-meals-section .sub{ margin-bottom:10px; }
   h2{
     font-size:19px;
     margin:0;
@@ -1376,6 +1383,8 @@
 
 <main>
 
+  <section class="week-meals-section" id="weekMeals" hidden></section>
+
   <section>
     <div class="sec-head"><span class="sec-num">01</span><h2>Pick this week's proteins</h2></div>
     <div class="sub">2–3 is plenty. Mix fresh-cook with what's already sitting in the freezer.</div>
@@ -1749,7 +1758,7 @@ function buildChatThreadUI(){
   wrap.className = 'chat-thread';
   wrap.innerHTML = `
     <div class="chat-lists" id="chatLists" hidden>
-      <button class="chat-lists-toggle" id="chatListsToggle">🛒 Meals &amp; grocery list <span class="clt-caret">▾</span></button>
+      <button class="chat-lists-toggle" id="chatListsToggle">🛒 Grocery list <span class="clt-caret">▾</span></button>
       <div class="chat-lists-body" id="chatListsBody" hidden></div>
     </div>
     <div class="chat-log" id="dietitian-log"></div>
@@ -1774,7 +1783,7 @@ function buildChatThreadUI(){
 // idea-parsing logic: it hands off to the now-visible thread input.
 function sendFromChatHome(text){
   if(!text) return;
-  const conv = { id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, title: 'New conversation', messages: [], meal_list: [], grocery_list: [], updated_at: new Date().toISOString() };
+  const conv = { id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, title: 'New conversation', messages: [], grocery_list: [], updated_at: new Date().toISOString() };
   dietitianConversations.unshift(conv);
   activeConversationId = conv.id;
   dietitianHistory = conv.messages;
@@ -1907,42 +1916,46 @@ function renderChatLog(){
   log.scrollTop = log.scrollHeight;
 }
 
-// Applies LISTOPS the model emits to the given conversation's meal_list /
+// Applies LISTOPS the model emits. Meal ops touch the global, week-scoped
+// weekMeals (shared across every conversation, lives on the main planner
+// screen) — grocery ops stay scoped to this one conversation's
 // grocery_list. Dedup lives here (case-insensitive) as a safety net — the
 // model is told about the current lists and asked not to duplicate, but
 // this is the actual guarantee.
 function applyListOps(conv, ops){
   if(!conv || !Array.isArray(ops) || !ops.length) return false;
-  if(!conv.meal_list) conv.meal_list = [];
   if(!conv.grocery_list) conv.grocery_list = [];
-  const findCategory = (name) => conv.meal_list.find(c => c.category.toLowerCase() === String(name||'').toLowerCase());
+  const findCategory = (name) => weekMeals.find(c => c.category.toLowerCase() === String(name||'').toLowerCase());
   let changed = false;
+  let mealsChanged = false;
   ops.forEach(op=>{
     if(!op || typeof op !== 'object') return;
     if(op.op === 'add_category' && op.category){
-      if(!findCategory(op.category)){ conv.meal_list.push({ category: op.category, items: [] }); changed = true; }
+      if(!findCategory(op.category)){ weekMeals.push({ category: op.category, items: [] }); mealsChanged = true; }
     } else if(op.op === 'add_meal' && op.category && op.item){
       let cat = findCategory(op.category);
-      if(!cat){ cat = { category: op.category, items: [] }; conv.meal_list.push(cat); }
+      if(!cat){ cat = { category: op.category, items: [] }; weekMeals.push(cat); }
       if(!cat.items.some(i => i.text.toLowerCase() === op.item.toLowerCase())){
         cat.items.push({ text: op.item, struck: false });
-        changed = true;
+        if(!weekMealsResetAt) weekMealsResetAt = new Date().toISOString();
+        mealsChanged = true;
       }
     } else if((op.op === 'strike_meal' || op.op === 'unstrike_meal') && op.category && op.item){
       const cat = findCategory(op.category);
       const it = cat && cat.items.find(i => i.text.toLowerCase() === op.item.toLowerCase());
-      if(it){ it.struck = (op.op === 'strike_meal'); changed = true; }
+      if(it){ it.struck = (op.op === 'strike_meal'); mealsChanged = true; }
     } else if(op.op === 'add_grocery' && op.item){
       if(!conv.grocery_list.some(g => g.toLowerCase() === op.item.toLowerCase())){
         conv.grocery_list.push(op.item);
         changed = true;
       }
     } else if(op.op === 'clear_meals'){
-      conv.meal_list = []; changed = true;
+      weekMeals = []; weekMealsResetAt = null; mealsChanged = true;
     } else if(op.op === 'clear_grocery'){
       conv.grocery_list = []; changed = true;
     }
   });
+  if(mealsChanged){ saveWeekMeals(); renderWeekMealsPanel(); changed = true; }
   return changed;
 }
 
@@ -1951,28 +1964,15 @@ function renderChatLists(){
   const body = document.getElementById('chatListsBody');
   if(!wrap || !body) return;
   const conv = getActiveConv();
-  const mealList = (conv && conv.meal_list) || [];
   const groceryList = (conv && conv.grocery_list) || [];
-  const hasContent = mealList.length > 0 || groceryList.length > 0;
-  wrap.hidden = !hasContent;
-  if(!hasContent) return;
+  wrap.hidden = !groceryList.length;
+  if(!groceryList.length) return;
 
-  const mealHtml = mealList.length ? `<div class="cl-section-label">Meals for week</div>` + mealList.map(cat => `
-    <div class="cl-category">
-      <div class="cl-category-name">${escapeHtml(cat.category)}</div>
-      ${(cat.items && cat.items.length)
-        ? '<ul class="cl-meal-items">' + cat.items.map(it => `<li${it.struck ? ' class="struck"' : ''}>${escapeHtml(it.text)}</li>`).join('') + '</ul>'
-        : '<div class="cl-empty">— empty —</div>'}
-    </div>
-  `).join('') : '';
-
-  const groceryHtml = groceryList.length ? `
+  body.innerHTML = `
     <div class="cl-section-label">Grocery list</div>
     <ul class="cl-grocery-items">${groceryList.map(g => `<li>${escapeHtml(g)}</li>`).join('')}</ul>
     <button class="ask-go" id="chatListsCopy">Copy list</button>
-  ` : '';
-
-  body.innerHTML = mealHtml + groceryHtml;
+  `;
   body.hidden = !chatListsExpanded;
   const copyBtn = document.getElementById('chatListsCopy');
   if(copyBtn) copyBtn.onclick = copyChatGroceryList;
@@ -2001,13 +2001,14 @@ function copyChatGroceryList(){
 // What sendDietitianMessage() folds into the system prompt so the model
 // knows what's already on each list — the actual dedup guard is client-side
 // in applyListOps(), this is just so it doesn't confidently re-offer to add
-// something that's already there.
+// something that's already there. Meals is shared app-wide for the week;
+// grocery is scoped to this one conversation — worth saying so in the
+// prompt since they behave differently if the person asks about it.
 function mealGroceryContext(conv){
-  const meal = (conv && conv.meal_list) || [];
   const grocery = (conv && conv.grocery_list) || [];
-  if(!meal.length && !grocery.length) return '';
-  const mealLines = meal.map(c => `${c.category}: ${(c.items||[]).map(i=>i.text + (i.struck ? ' (covered)' : '')).join(', ') || '(empty)'}`).join('; ');
-  return `\n\nCurrent running lists for this conversation — Meals for week: ${mealLines || '(none yet)'}. Grocery list: ${grocery.join(', ') || '(empty)'}.`;
+  if(!weekMeals.length && !grocery.length) return '';
+  const mealLines = weekMeals.map(c => `${c.category}: ${(c.items||[]).map(i=>i.text + (i.struck ? ' (covered)' : '')).join(', ') || '(empty)'}`).join('; ');
+  return `\n\nCurrent running lists — This week's meals (shared across every conversation, also visible on the main planner screen): ${mealLines || '(none yet)'}. Grocery list (just this conversation): ${grocery.join(', ') || '(empty)'}.`;
 }
 
 async function sendDietitianMessage(){
@@ -2046,7 +2047,7 @@ How you write: lead with the actual point, no "Great question!" or complimenting
 
 If you name specific dishes worth remembering, end your reply with a line "IDEAS: " followed by a JSON array of objects like IDEAS: [{"title":"Potato Cheddar Chive Bake","category":"Breakfast"}] — category must be exactly one of "Breakfast", "Meals", "Snacks", "Misc". If nothing's worth naming as a keepable idea this reply, use IDEAS: []. This line is stripped before display, so it doesn't count as your reply's actual closing line.
 
-This conversation can also carry two running lists that render live in a panel above the chat, separate from the IDEAS mechanism above: a "Meals for week" list grouped into categories (Breakfast, Meals, and Snacks are typical starting points, but they can name any custom category, like "Pre-Workout Meal"), and a flat "Grocery list" of ingredients. Critical: only touch these lists when they explicitly ask you to — brainstorming a dish or ingredient out loud is never itself a request to add it, even if it's a great idea. Wait for something like "add X to list," "add meal Y to breakfast," "add a category for Z," or "clear the list." If it's ambiguous whether they want something added, ask rather than guessing.${listCtx}
+Two more running lists exist alongside this, separate from the IDEAS mechanism above: "This week's meals," grouped into categories (Breakfast, Meals, and Snacks are typical starting points, but they can name any custom category, like "Pre-Workout Meal") — this one is shared across every conversation and shows up on the main planner screen, not just here, and it auto-clears itself every few days so it doesn't go stale. And a flat "Grocery list" of ingredients, which renders live in a panel above this chat and is scoped to just this one conversation. Critical: only touch either list when they explicitly ask you to — brainstorming a dish or ingredient out loud is never itself a request to add it, even if it's a great idea. Wait for something like "add X to list," "add meal Y to breakfast," "add a category for Z," or "clear the list." If it's ambiguous whether they want something added, ask rather than guessing.${listCtx}
 
 To change a list, end your reply with a line "LISTOPS: " followed by a JSON array of operations, using exactly these shapes: {"op":"add_category","category":"Name"} (creates an empty category), {"op":"add_meal","category":"Breakfast","item":"Name"}, {"op":"strike_meal","category":"Breakfast","item":"Name"} (marks a meal covered/handled, not rejected — use when they say something like "ingredients are already on the list" or "that one's covered"), {"op":"unstrike_meal","category":"Breakfast","item":"Name"}, {"op":"add_grocery","item":"ingredient"}, {"op":"clear_meals"} / {"op":"clear_grocery"} (wipes one list — e.g. if they say to start blank or that a send was a mistake). If nothing on either list changes this reply, omit the line entirely or use LISTOPS: []. Since the lists render live in their own panel, don't reprint the whole list back to them in your reply text — a short confirmation of what changed is enough (or a note that it's already there, using the current lists above to catch duplicates yourself). This line is also stripped before display.`;
 
@@ -2147,13 +2148,13 @@ async function saveActiveConversation(){
   dietitianConversations = [conv, ...dietitianConversations.filter(c=>c.id!==conv.id)];
   lsSet(LS_DIETITIAN, { conversations: dietitianConversations, activeId: activeConversationId });
   const { error } = await sb.from('food_dietitian_conversations')
-    .upsert({ id: conv.id, title: conv.title, messages: conv.messages, meal_list: conv.meal_list || [], grocery_list: conv.grocery_list || [], updated_at: conv.updated_at }, { onConflict: 'id' });
+    .upsert({ id: conv.id, title: conv.title, messages: conv.messages, grocery_list: conv.grocery_list || [], updated_at: conv.updated_at }, { onConflict: 'id' });
   if(error) console.warn('Conversation not synced:', error.message);
 }
 
 async function loadDietitianConversations(){
   const { data, error } = await sb.from('food_dietitian_conversations')
-    .select('id, title, messages, meal_list, grocery_list, updated_at')
+    .select('id, title, messages, grocery_list, updated_at')
     .eq('archived', false)
     .order('updated_at', { ascending: false });
 
@@ -3635,6 +3636,13 @@ async function rateMeal(week, day, rating){
 // re-bill and a stale list announces itself rather than lying quietly.
 let groceryData = null;   // { plan_hash, generated_at, text }
 
+// "This week's meals" — the categorized list Your Dietitian builds via chat
+// (LISTOPS add_meal/strike_meal/add_category). Lives on the current week's
+// food_week_plans row, not on any one conversation, so it's shared no
+// matter which chat thread you add from and shows up right on the planner.
+let weekMeals = [];
+let weekMealsResetAt = null;
+
 function planHash(){
   const parts = [
     [...selectedProteins].sort().join('|'),
@@ -3949,6 +3957,55 @@ async function loadWeek(){
               { onConflict:'week_start' });
     if(e) console.warn('Week backfill failed:', e.message);
   }
+
+  // Meals is deliberately read from `remote` only, not the local/remote
+  // freshness race above — it's never written through snapshotWeek()/
+  // saveWeek() at all, only through chat LISTOPS, so there's nothing to
+  // reconcile. A brand new week (remote still null) just starts blank.
+  weekMeals = (remote && remote.meals) || [];
+  weekMealsResetAt = (remote && remote.meals_reset_at) || null;
+  checkMealsReset();
+  renderWeekMealsPanel();
+}
+
+// The only clock this app has for "auto-clear after N days" — checked
+// whenever the week loads, since a static page with no server-side cron
+// can't otherwise notice time passing while it's closed. Anchored to when
+// the list actually started (first item added), not to week_start, so a
+// week that doesn't get chatted about until Wednesday still gets its full
+// 5 days. The full week itself is the real archive: this only blanks the
+// working list, it never touches last week's now-frozen row.
+function checkMealsReset(){
+  if(!weekMealsResetAt || !weekMeals.length) return;
+  const elapsedDays = (Date.now() - new Date(weekMealsResetAt).getTime()) / 86400000;
+  if(elapsedDays >= 5){
+    weekMeals = [];
+    weekMealsResetAt = null;
+    saveWeekMeals();
+  }
+}
+
+async function saveWeekMeals(){
+  const { error } = await sb.from('food_week_plans')
+    .upsert({ week_start: weekStart(), meals: weekMeals, meals_reset_at: weekMealsResetAt, updated_at: new Date().toISOString() }, { onConflict: 'week_start' });
+  if(error) console.warn('This week\'s meals not synced:', error.message);
+}
+
+function renderWeekMealsPanel(){
+  const wrap = document.getElementById('weekMeals');
+  if(!wrap) return;
+  if(!weekMeals.length){ wrap.hidden = true; return; }
+  wrap.hidden = false;
+  wrap.innerHTML = `<div class="sec-head"><h2>🍽️ This week's meals</h2></div>` +
+    `<div class="sub">Built from Your Dietitian — clears itself after a few days of quiet, archives for good once the week turns over.</div>` +
+    weekMeals.map(cat => `
+      <div class="cl-category">
+        <div class="cl-category-name">${escapeHtml(cat.category)}</div>
+        ${(cat.items && cat.items.length)
+          ? '<ul class="cl-meal-items">' + cat.items.map(it => `<li${it.struck ? ' class="struck"' : ''}>${escapeHtml(it.text)}</li>`).join('') + '</ul>'
+          : '<div class="cl-empty">— empty —</div>'}
+      </div>
+    `).join('');
 }
 
 async function saveCustomCombo(pid, combo){

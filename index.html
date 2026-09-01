@@ -1246,6 +1246,18 @@
     cursor:pointer;
   }
   .import-measure-toggle input{ accent-color:var(--brand); width:15px; height:15px; }
+  .import-choice-secondary{
+    width:100%;
+    background:#fff;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    padding:9px 16px;
+    font-size:13px;
+    font-weight:600;
+    font-family:inherit;
+    color:var(--brand-dark);
+    cursor:pointer;
+  }
   .recipe-section-label{
     font-size:11px;
     font-weight:700;
@@ -2679,7 +2691,13 @@ function autoFillWeek(){
 }
 
 // Generic bottom sheet: pass a title and a function that fills the body.
+let sheetCloseTimer = null;
+
 function openSheet(title, fillBody){
+  clearTimeout(sheetCloseTimer);   // closing one sheet then immediately opening
+                                    // another (close -> await -> open) must not
+                                    // let the old close's delayed hide fire late
+                                    // and yank the new sheet back off screen.
   const wrap = document.getElementById('daySheet');
   document.getElementById('daySheetTitle').textContent = title;
   const body = document.getElementById('daySheetBody');
@@ -2694,7 +2712,8 @@ function closeSheet(){
   const wrap = document.getElementById('daySheet');
   wrap.classList.remove('open');
   document.body.classList.remove('drawer-open');
-  setTimeout(()=>{ wrap.hidden = true; }, 200);
+  clearTimeout(sheetCloseTimer);
+  sheetCloseTimer = setTimeout(()=>{ wrap.hidden = true; }, 200);
 }
 
 function openDayPicker(day){
@@ -4193,6 +4212,14 @@ async function handleVideoImport(file){
     importBtn.disabled = false;
     return;
   }
+  await generateRecipeFromTranscript(transcript);
+  importBtn.disabled = false;
+}
+
+// Shared by both entry points — an mp4 that just got transcribed, or a
+// transcript/caption pasted straight in. Either way, from here on it's the
+// same "hand the words to Claude, review, save" flow.
+async function generateRecipeFromTranscript(transcript){
   setImportStatus('Turning that into a recipe…');
   try {
     const measureOn = document.getElementById('importMeasureToggle').checked;
@@ -4201,9 +4228,16 @@ async function handleVideoImport(file){
     openRecipeReviewSheet(recipe);
   } catch(err){
     setImportStatus(`Could not build a recipe: ${err.message}`, 'error');
-  } finally {
-    importBtn.disabled = false;
   }
+}
+
+async function handleTranscriptImport(text){
+  const transcript = (text || '').trim();
+  if(!transcript){ toast('Paste a transcript first.', 'warn'); return; }
+  const importBtn = document.getElementById('importVideoBtn');
+  importBtn.disabled = true;
+  await generateRecipeFromTranscript(transcript);
+  importBtn.disabled = false;
 }
 
 const VIDEO_RECIPE_SCHEMA = {
@@ -4224,9 +4258,9 @@ async function callVideoRecipeModel(transcript, measureOn){
     try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
   }
   const measureNote = measureOn
-    ? "Include measurements/quantities where the speaker states or clearly implies them, and make a reasonable estimate anywhere they don't — never leave a quantity out just because it wasn't said aloud."
-    : 'Skip exact measurements entirely — list ingredients plainly (e.g. "olive oil", "garlic", "chicken thighs") with no quantities, even where the speaker gave one.';
-  const prompt_ = `This is a spoken transcript from a short cooking video (TikTok/Reels/Shorts-style). It may be casual, out of order, or missing connective words a written recipe would have. Turn it into a clean, short recipe.\n\n${measureNote}\n\nGive a short title, a one-word-ish category (e.g. "Dinner", "Breakfast", "Dessert", "Snack"), and the recipe itself as one plain-text block — ingredients list, blank line, then numbered steps. Don't invent ingredients or steps the transcript doesn't support.\n\nTranscript:\n"""${transcript}"""`;
+    ? "Include measurements/quantities where the source states or clearly implies them, and make a reasonable estimate anywhere it doesn't — never leave a quantity out just because it wasn't stated outright."
+    : 'Don\'t force exact measurements that aren\'t there — plain ingredient names are enough (e.g. "olive oil", "garlic", "chicken thighs"). If the source itself uses a vague amount ("some," "a little," "a pinch"), it\'s fine to keep that as-is rather than either inventing a precise quantity or stripping the word out entirely.';
+  const prompt_ = `This is a transcript or caption text from a short cooking video (TikTok/Reels/Shorts-style) — spoken narration, on-screen text, or both, and it may be casual, out of order, or missing connective words a written recipe would have. Turn it into a clean, short recipe.\n\n${measureNote}\n\nGive a short title, a one-word-ish category (e.g. "Dinner", "Breakfast", "Dessert", "Snack"), and the recipe itself as one plain-text block — ingredients list, blank line, then numbered steps. Don't invent ingredients or steps the source doesn't support.\n\nTranscript:\n"""${transcript}"""`;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{
@@ -4251,10 +4285,40 @@ async function callVideoRecipeModel(transcript, measureOn){
   catch(e){ throw new Error('the response came back malformed. Try again.'); }
 }
 
+function openVideoImportChoiceSheet(){
+  openSheet('Import a recipe', (body)=>{
+    body.innerHTML = `
+      <div class="ask-status">Have the video file, or already have the words from it? Either works.</div>
+      <button class="ask-go" id="importChooseMp4" style="width:100%;margin-bottom:8px;">🎥 Upload a video file</button>
+      <button class="import-choice-secondary" id="importChooseTranscript">📝 Paste a transcript instead</button>
+    `;
+    body.querySelector('#importChooseMp4').onclick = ()=>{
+      closeSheet();
+      document.getElementById('importVideoFile').click();
+    };
+    body.querySelector('#importChooseTranscript').onclick = openTranscriptImportSheet;
+  });
+}
+
+function openTranscriptImportSheet(){
+  openSheet('Paste transcript', (body)=>{
+    body.innerHTML = `
+      <div class="ask-status">Captions, on-screen text, whatever you've got — doesn't need to be clean.</div>
+      <textarea class="grocery-out" id="transcriptInput" style="min-height:160px;font-size:13px;line-height:1.6;" placeholder="Paste the video's transcript or caption text here..."></textarea>
+      <button class="ask-go" id="transcriptGoBtn" style="margin-top:10px;">Turn into a recipe</button>
+    `;
+    body.querySelector('#transcriptGoBtn').onclick = ()=>{
+      const text = body.querySelector('#transcriptInput').value;
+      closeSheet();
+      handleTranscriptImport(text);
+    };
+  });
+}
+
 function openRecipeReviewSheet(recipe){
   openSheet('Review recipe', (body)=>{
     body.innerHTML = `
-      <div class="ask-status">From a video transcript — check it over before saving.</div>
+      <div class="ask-status">Check it over before saving.</div>
       <input type="text" class="ask-input" id="reviewTitle" style="width:100%;margin-bottom:8px;" value="${escapeHtml(recipe.title||'')}" placeholder="Title">
       <input type="text" class="ask-input" id="reviewCategory" style="width:100%;margin-bottom:8px;" value="${escapeHtml(recipe.category||'Misc')}" placeholder="Category">
       <textarea class="grocery-out" id="reviewRecipe" style="min-height:180px;font-size:13px;line-height:1.6;">${escapeHtml(recipe.recipe||'')}</textarea>
@@ -4357,7 +4421,7 @@ init();
 document.getElementById('taste-go').onclick = addTasteNote;
 document.getElementById('taste-input').onkeydown = (e)=>{ if(e.key==='Enter') addTasteNote(); };
 
-document.getElementById('importVideoBtn').onclick = ()=> document.getElementById('importVideoFile').click();
+document.getElementById('importVideoBtn').onclick = openVideoImportChoiceSheet;
 document.getElementById('importVideoFile').onchange = (e)=>{
   const file = e.target.files[0];
   e.target.value = '';

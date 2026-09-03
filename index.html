@@ -734,6 +734,54 @@
   }
   .cl-empty{ font-size:12px; color:var(--muted); font-style:italic; }
   .chat-lists-body #chatListsCopy{ margin-top:6px; }
+  .cl-category-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .wm-cat-remove, .wm-item-remove{
+    flex-shrink:0;
+    cursor:pointer;
+    color:var(--muted);
+    font-size:12px;
+    padding:2px 4px;
+  }
+  .wm-cat-remove:active, .wm-item-remove:active{ color:#B4232C; }
+  .cl-meal-items.wm-editable li{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .wm-item-text{ flex:1; cursor:pointer; }
+  .wm-add-row, .wm-add-category-row{
+    display:flex;
+    gap:6px;
+    margin-top:6px;
+  }
+  .wm-add-category-row{ margin-top:12px; }
+  .wm-add-input{
+    flex:1;
+    min-width:0;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:6px 10px;
+    font-size:12.5px;
+    font-family:inherit;
+  }
+  .wm-add-btn{
+    flex-shrink:0;
+    background:var(--brand);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    padding:6px 12px;
+    font-size:12.5px;
+    font-weight:700;
+    font-family:inherit;
+    cursor:pointer;
+  }
   .chat-log{
     flex:1;
     min-height:0;
@@ -1949,7 +1997,6 @@ function applyListOps(conv, ops){
       if(!cat){ cat = { category: op.category, items: [] }; weekMeals.push(cat); }
       if(!cat.items.some(i => i.text.toLowerCase() === op.item.toLowerCase())){
         cat.items.push({ text: op.item, struck: false });
-        if(!weekMealsResetAt) weekMealsResetAt = new Date().toISOString();
         mealsChanged = true;
       }
     } else if((op.op === 'strike_meal' || op.op === 'unstrike_meal') && op.category && op.item){
@@ -1962,12 +2009,12 @@ function applyListOps(conv, ops){
         changed = true;
       }
     } else if(op.op === 'clear_meals'){
-      weekMeals = []; weekMealsResetAt = null; mealsChanged = true;
+      weekMeals = []; mealsChanged = true;
     } else if(op.op === 'clear_grocery'){
       conv.grocery_list = []; changed = true;
     }
   });
-  if(mealsChanged){ saveWeekMeals(); renderWeekMealsPanel(); changed = true; }
+  if(mealsChanged){ markWeekMealsActivity(); saveWeekMeals(); renderWeekMealsPanel(); changed = true; }
   return changed;
 }
 
@@ -4010,21 +4057,120 @@ async function saveWeekMeals(){
   if(error) console.warn('This week\'s meals not synced:', error.message);
 }
 
+// Recomputes whether the 5-day clock should be running — starts it the
+// moment the list actually has something in it (whether that item came
+// from chat or from editing here), stops it the moment the list is
+// genuinely empty again so a stale clock can't outlive its list.
+function markWeekMealsActivity(){
+  const hasAny = weekMeals.some(c => c.items && c.items.length);
+  if(hasAny && !weekMealsResetAt) weekMealsResetAt = new Date().toISOString();
+  if(!hasAny) weekMealsResetAt = null;
+}
+
+function toggleWeekMealItem(ci, ii){
+  const it = weekMeals[ci] && weekMeals[ci].items[ii];
+  if(!it) return;
+  it.struck = !it.struck;
+  saveWeekMeals();
+  renderWeekMealsPanel();
+}
+
+function removeWeekMealItem(ci, ii){
+  const cat = weekMeals[ci];
+  if(!cat) return;
+  cat.items.splice(ii, 1);
+  markWeekMealsActivity();
+  saveWeekMeals();
+  renderWeekMealsPanel();
+}
+
+function addWeekMealItem(ci, text){
+  const val = (text || '').trim();
+  const cat = weekMeals[ci];
+  if(!val || !cat) return;
+  if(cat.items.some(i => i.text.toLowerCase() === val.toLowerCase())){
+    toast('Already on there.', 'warn');
+    return;
+  }
+  cat.items.push({ text: val, struck: false });
+  markWeekMealsActivity();
+  saveWeekMeals();
+  renderWeekMealsPanel();
+}
+
+function removeWeekMealCategory(ci){
+  weekMeals.splice(ci, 1);
+  markWeekMealsActivity();
+  saveWeekMeals();
+  renderWeekMealsPanel();
+}
+
+function addWeekMealCategory(name){
+  const val = (name || '').trim();
+  if(!val) return;
+  if(weekMeals.some(c => c.category.toLowerCase() === val.toLowerCase())){
+    toast('That category already exists.', 'warn');
+    return;
+  }
+  weekMeals.push({ category: val, items: [] });
+  saveWeekMeals();
+  renderWeekMealsPanel();
+}
+
 function renderWeekMealsPanel(){
   const wrap = document.getElementById('weekMeals');
   if(!wrap) return;
-  if(!weekMeals.length){ wrap.hidden = true; return; }
   wrap.hidden = false;
-  wrap.innerHTML = `<div class="sec-head"><h2>🍽️ This week's meals</h2></div>` +
-    `<div class="sub">Built from Your Dietitian — clears itself after a few days of quiet, archives for good once the week turns over.</div>` +
-    weekMeals.map(cat => `
-      <div class="cl-category">
+  const catsHtml = weekMeals.length ? weekMeals.map((cat, ci) => `
+    <div class="cl-category">
+      <div class="cl-category-head">
         <div class="cl-category-name">${escapeHtml(cat.category)}</div>
-        ${(cat.items && cat.items.length)
-          ? '<ul class="cl-meal-items">' + cat.items.map(it => `<li${it.struck ? ' class="struck"' : ''}>${escapeHtml(it.text)}</li>`).join('') + '</ul>'
-          : '<div class="cl-empty">— empty —</div>'}
+        <span class="wm-cat-remove" data-ci="${ci}" title="Remove category">✕</span>
       </div>
-    `).join('');
+      ${(cat.items && cat.items.length)
+        ? '<ul class="cl-meal-items wm-editable">' + cat.items.map((it, ii) => `
+            <li${it.struck ? ' class="struck"' : ''}>
+              <span class="wm-item-text" data-ci="${ci}" data-ii="${ii}">${escapeHtml(it.text)}</span>
+              <span class="wm-item-remove" data-ci="${ci}" data-ii="${ii}">✕</span>
+            </li>
+          `).join('') + '</ul>'
+        : '<div class="cl-empty">— empty —</div>'}
+      <div class="wm-add-row">
+        <input type="text" class="wm-add-input" data-ci="${ci}" placeholder="Add to ${escapeHtml(cat.category)}">
+        <button class="wm-add-btn" data-ci="${ci}">+</button>
+      </div>
+    </div>
+  `).join('') : `<div class="cl-empty">Nothing yet — add a category below, or talk it through with Your Dietitian.</div>`;
+
+  wrap.innerHTML = `<div class="sec-head"><h2>🍽️ This week's meals</h2></div>` +
+    `<div class="sub">Built from Your Dietitian, editable here too — clears itself after a few days of quiet, archives for good once the week turns over.</div>` +
+    catsHtml +
+    `<div class="wm-add-category-row">
+      <input type="text" class="wm-add-input" id="wmNewCategoryInput" placeholder="New category">
+      <button class="wm-add-btn" id="wmAddCategoryBtn">+ Add category</button>
+    </div>`;
+
+  wrap.querySelectorAll('.wm-item-text').forEach(el=>{
+    el.onclick = ()=> toggleWeekMealItem(parseInt(el.dataset.ci), parseInt(el.dataset.ii));
+  });
+  wrap.querySelectorAll('.wm-item-remove').forEach(el=>{
+    el.onclick = ()=> removeWeekMealItem(parseInt(el.dataset.ci), parseInt(el.dataset.ii));
+  });
+  wrap.querySelectorAll('.wm-cat-remove').forEach(el=>{
+    el.onclick = ()=> removeWeekMealCategory(parseInt(el.dataset.ci));
+  });
+  wrap.querySelectorAll('.wm-add-row').forEach(row=>{
+    const input = row.querySelector('.wm-add-input');
+    const btn = row.querySelector('.wm-add-btn');
+    const go = ()=>{ addWeekMealItem(parseInt(input.dataset.ci), input.value); input.value = ''; };
+    btn.onclick = go;
+    input.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
+  });
+  const newCatInput = wrap.querySelector('#wmNewCategoryInput');
+  const newCatBtn = wrap.querySelector('#wmAddCategoryBtn');
+  const addCat = ()=>{ addWeekMealCategory(newCatInput.value); newCatInput.value = ''; };
+  newCatBtn.onclick = addCat;
+  newCatInput.onkeydown = (e)=>{ if(e.key==='Enter') addCat(); };
 }
 
 async function saveCustomCombo(pid, combo){

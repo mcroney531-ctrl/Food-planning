@@ -295,6 +295,19 @@
     padding:16px 16px 4px;
   }
   .week-meals-section .sub{ margin-bottom:10px; }
+  .wm-head{ justify-content:space-between; }
+  .wm-edit-toggle{
+    flex-shrink:0;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:var(--r-sm);
+    padding:5px 12px;
+    font-size:12px;
+    font-weight:700;
+    font-family:inherit;
+    color:var(--brand-dark);
+    cursor:pointer;
+  }
   h2{
     font-size:19px;
     margin:0;
@@ -4117,11 +4130,24 @@ function addWeekMealCategory(name){
   renderWeekMealsPanel();
 }
 
-function renderWeekMealsPanel(){
-  const wrap = document.getElementById('weekMeals');
-  if(!wrap) return;
-  wrap.hidden = false;
-  const catsHtml = weekMeals.length ? weekMeals.map((cat, ci) => `
+// Two views on the same data: a neat read-only one (default — matches the
+// rest of the app's calm density) and an editable one behind a tap, since
+// the ✕s and add-rows are genuinely busier than a plain list.
+let weekMealsEditMode = false;
+
+function renderWeekMealCategoryReadOnly(cat){
+  return `
+    <div class="cl-category">
+      <div class="cl-category-name">${escapeHtml(cat.category)}</div>
+      ${(cat.items && cat.items.length)
+        ? '<ul class="cl-meal-items">' + cat.items.map(it => `<li${it.struck ? ' class="struck"' : ''}>${escapeHtml(it.text)}</li>`).join('') + '</ul>'
+        : '<div class="cl-empty">— empty —</div>'}
+    </div>
+  `;
+}
+
+function renderWeekMealCategoryEditable(cat, ci){
+  return `
     <div class="cl-category">
       <div class="cl-category-head">
         <div class="cl-category-name">${escapeHtml(cat.category)}</div>
@@ -4140,15 +4166,35 @@ function renderWeekMealsPanel(){
         <button class="wm-add-btn" data-ci="${ci}">+</button>
       </div>
     </div>
-  `).join('') : `<div class="cl-empty">Nothing yet — add a category below, or talk it through with Your Dietitian.</div>`;
+  `;
+}
 
-  wrap.innerHTML = `<div class="sec-head"><h2>🍽️ This week's meals</h2></div>` +
-    `<div class="sub">Built from Your Dietitian, editable here too — clears itself after a few days of quiet, archives for good once the week turns over.</div>` +
-    catsHtml +
-    `<div class="wm-add-category-row">
-      <input type="text" class="wm-add-input" id="wmNewCategoryInput" placeholder="New category">
-      <button class="wm-add-btn" id="wmAddCategoryBtn">+ Add category</button>
-    </div>`;
+function renderWeekMealsPanel(){
+  const wrap = document.getElementById('weekMeals');
+  if(!wrap) return;
+  wrap.hidden = false;
+
+  const catsHtml = weekMeals.length
+    ? weekMeals.map((cat, ci) => weekMealsEditMode ? renderWeekMealCategoryEditable(cat, ci) : renderWeekMealCategoryReadOnly(cat)).join('')
+    : `<div class="cl-empty">${weekMealsEditMode ? 'Nothing yet — add a category below, or talk it through with Your Dietitian.' : 'Nothing yet — talk it through with Your Dietitian, or tap Edit to add your own.'}</div>`;
+
+  const addCategoryHtml = weekMealsEditMode
+    ? `<div class="wm-add-category-row">
+        <input type="text" class="wm-add-input" id="wmNewCategoryInput" placeholder="New category">
+        <button class="wm-add-btn" id="wmAddCategoryBtn">+ Add category</button>
+      </div>`
+    : '';
+
+  wrap.innerHTML = `<div class="sec-head wm-head"><h2>🍽️ This week's meals</h2><button class="wm-edit-toggle" id="wmEditToggle">${weekMealsEditMode ? 'Done' : 'Edit'}</button></div>` +
+    `<div class="sub">Built from Your Dietitian${weekMealsEditMode ? ', editable here too' : ''} — clears itself after a few days of quiet, archives for good once the week turns over.</div>` +
+    catsHtml + addCategoryHtml;
+
+  wrap.querySelector('#wmEditToggle').onclick = ()=>{
+    weekMealsEditMode = !weekMealsEditMode;
+    renderWeekMealsPanel();
+  };
+
+  if(!weekMealsEditMode) return;
 
   wrap.querySelectorAll('.wm-item-text').forEach(el=>{
     el.onclick = ()=> toggleWeekMealItem(parseInt(el.dataset.ci), parseInt(el.dataset.ii));

@@ -642,7 +642,7 @@
     width:100%;
     max-width:420px;
     display:flex;
-    align-items:center;
+    align-items:flex-end;
     gap:8px;
     background:#fff;
     border:1px solid var(--line);
@@ -659,6 +659,12 @@
     font-family:inherit;
     background:transparent;
     color:var(--text);
+  }
+  .composer-textarea{
+    resize:none;
+    line-height:1.35;
+    overflow-y:hidden;
+    max-height:140px;
   }
   .chat-home-send{
     flex-shrink:0;
@@ -945,6 +951,7 @@
   .msg.thinking{ color:var(--muted); font-style:italic; }
   .chat-input-row{
     display:flex;
+    align-items:flex-end;
     gap:8px;
     flex-shrink:0;
     padding:10px 14px;
@@ -1803,6 +1810,32 @@ function greetingForNow(){
   return 'Evening thoughts';
 }
 
+// Shared by every multi-line chat composer (home screen + thread). Enter
+// always inserts a newline — a touch keyboard has no Shift+Enter, so
+// treating bare Enter as "send" leaves no way to type a second line at
+// all on a phone. Cmd/Ctrl+Enter is the desktop send shortcut; the button
+// is the only other way to send.
+function wireComposerEnter(el, sendFn){
+  el.onkeydown = (e)=>{
+    if(e.key !== 'Enter') return;
+    if(e.metaKey || e.ctrlKey){ e.preventDefault(); sendFn(); }
+  };
+}
+
+const COMPOSER_MAX_HEIGHT = 140; // px — grows to this, then scrolls instead of clipping
+
+function autoGrowComposer(el){
+  el.style.height = 'auto';
+  const next = Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT);
+  el.style.height = next + 'px';
+  el.style.overflowY = el.scrollHeight > COMPOSER_MAX_HEIGHT ? 'auto' : 'hidden';
+}
+
+function resetComposerHeight(el){
+  el.style.height = '';
+  el.style.overflowY = 'hidden';
+}
+
 function buildChatHomeUI(){
   const wrap = document.createElement('div');
   wrap.className = 'chat-home';
@@ -1810,7 +1843,7 @@ function buildChatHomeUI(){
     <div class="chat-home-icon">🥑</div>
     <div class="chat-home-greeting">${greetingForNow()}</div>
     <div class="chat-home-composer">
-      <input type="text" class="chat-home-input" id="chatHomeInput" placeholder="Ask about anything food-related...">
+      <textarea class="chat-home-input composer-textarea" id="chatHomeInput" rows="1" enterkeyhint="enter" placeholder="Ask about anything food-related..."></textarea>
       <button class="chat-home-send" id="chatHomeSend">Send</button>
     </div>
     <div class="chat-home-quick">
@@ -1820,7 +1853,8 @@ function buildChatHomeUI(){
   const input = wrap.querySelector('#chatHomeInput');
   const go = ()=> sendFromChatHome(input.value.trim());
   wrap.querySelector('#chatHomeSend').onclick = go;
-  input.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
+  wireComposerEnter(input, go);
+  input.oninput = ()=> autoGrowComposer(input);
   wrap.querySelector('#chatQuickGrocery').onclick = ()=> sendFromChatHome("Let's meal plan/go grocery shopping for the week.");
   return wrap;
 }
@@ -1836,12 +1870,14 @@ function buildChatThreadUI(){
     </div>
     <div class="chat-log" id="dietitian-log"></div>
     <div class="chat-input-row">
-      <input type="text" class="ask-input" id="dietitian-input" placeholder="Ask about anything food-related...">
+      <textarea class="ask-input composer-textarea" id="dietitian-input" rows="1" enterkeyhint="enter" placeholder="Ask about anything food-related..."></textarea>
       <button class="ask-go" id="dietitian-go">Send</button>
     </div>
   `;
   wrap.querySelector('#dietitian-go').onclick = sendDietitianMessage;
-  wrap.querySelector('#dietitian-input').onkeydown = (e)=>{ if(e.key==='Enter') sendDietitianMessage(); };
+  const dInput = wrap.querySelector('#dietitian-input');
+  wireComposerEnter(dInput, sendDietitianMessage);
+  dInput.oninput = ()=> autoGrowComposer(dInput);
   wrap.querySelector('#chatListsToggle').onclick = ()=>{
     chatListsExpanded = !chatListsExpanded;
     wrap.querySelector('#chatListsBody').hidden = !chatListsExpanded;
@@ -2102,6 +2138,7 @@ async function sendDietitianMessage(){
 
   dietitianHistory.push({ role:'user', text });
   input.value = '';
+  resetComposerHeight(input);
   saveActiveConversation();
   dietitianHistory.push({ role:'assistant thinking', text:'...' });
   renderChatLog();

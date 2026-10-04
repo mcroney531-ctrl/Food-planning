@@ -601,6 +601,13 @@
     width:100%;
     min-height:0;
   }
+  /* #view-chat's own display:flex above is an ID selector, which otherwise
+     beats the generic .drawer-view[hidden]{ display:none } rule (fewer
+     classes/attributes always loses to an ID, regardless of count) — so
+     switching away from Your Dietitian left it rendered underneath
+     whatever view came next. This has to out-specificity that rule, not
+     just add another declaration. */
+  #view-chat[hidden]{ display:none; }
   .chat-shell{
     display:flex;
     flex-direction:column;

@@ -814,8 +814,8 @@
     overflow-y:auto;
     display:flex;
     flex-direction:column;
-    gap:8px;
-    padding:14px;
+    gap:24px;
+    padding:20px 18px 28px;
   }
   .chat-empty{
     margin:auto 0;
@@ -917,32 +917,55 @@
     font-size:13px;
     font-family:inherit;
   }
-  .msg{
-    max-width:85%;
-    padding:8px 12px;
-    border-radius:12px;
-    font-size:13px;
-    line-height:1.45;
-  }
+  .msg{ line-height:1.45; }
   .msg.user{
     align-self:flex-end;
+    max-width:85%;
     background:var(--brand);
     color:#fff;
-    border-bottom-right-radius:3px;
+    padding:10px 16px;
+    border-radius:18px;
+    border-bottom-right-radius:4px;
+    font-size:16px;
+    line-height:1.4;
   }
+  /* The core move of this redesign: no card, no background, no bubble —
+     the answer sits directly on the page like something you're reading,
+     not a chat-widget reply. Width, type size and line-height do the work
+     "feels like a document, not a support widget" needs. */
   .msg.assistant{
-    align-self:flex-start;
-    background:#EAF7EF;
+    align-self:stretch;
+    width:100%;
     color:var(--text);
-    border-bottom-left-radius:3px;
+    font-size:18px;
+    line-height:1.6;
   }
-  .msg.assistant p{ margin:0 0 8px; }
+  .msg.assistant p{ margin:0 0 14px; }
   .msg.assistant p:last-child{ margin-bottom:0; }
-  .msg.assistant ul, .msg.assistant ol{ margin:0 0 8px; padding-left:19px; }
+  .msg.assistant ul, .msg.assistant ol{ margin:0 0 14px; padding-left:22px; }
   .msg.assistant ul:last-child, .msg.assistant ol:last-child{ margin-bottom:0; }
-  .msg.assistant li{ margin-bottom:3px; }
+  .msg.assistant li{ margin-bottom:6px; }
   .msg.assistant li:last-child{ margin-bottom:0; }
   .msg.assistant strong{ font-weight:700; }
+  .msg.assistant em{ font-style:italic; }
+  .msg.assistant code{
+    background:var(--panel);
+    padding:1px 5px;
+    border-radius:4px;
+    font-size:0.88em;
+    font-family:ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  .msg.assistant a{ color:var(--brand-dark); text-decoration:underline; }
+  .msg.assistant h1, .msg.assistant h2, .msg.assistant h3{
+    margin:20px 0 8px;
+    font-weight:700;
+    line-height:1.3;
+    color:var(--text);
+  }
+  .msg.assistant h1:first-child, .msg.assistant h2:first-child, .msg.assistant h3:first-child{ margin-top:0; }
+  .msg.assistant h1{ font-size:1.25em; }
+  .msg.assistant h2{ font-size:1.15em; }
+  .msg.assistant h3{ font-size:1.05em; }
   .msg.assistant .add-idea{
     display:inline-block;
     margin:4px 4px 0 0;
@@ -956,16 +979,57 @@
     cursor:pointer;
   }
   .msg.thinking{ color:var(--muted); font-style:italic; }
+  .msg-actions{
+    display:flex;
+    gap:14px;
+    margin-top:10px;
+  }
+  .msg-action{
+    background:none;
+    border:none;
+    padding:2px 0;
+    font-size:12.5px;
+    font-weight:600;
+    font-family:inherit;
+    color:var(--muted);
+    cursor:pointer;
+  }
+  .msg-action:hover{ color:var(--brand-dark); }
   .chat-input-row{
     display:flex;
     align-items:flex-end;
     gap:8px;
     flex-shrink:0;
-    padding:10px 14px;
-    padding-bottom:max(10px, env(safe-area-inset-bottom));
-    border-top:1px solid var(--line);
-    background:var(--bg);
+    margin:0 14px max(14px, env(safe-area-inset-bottom));
+    padding:8px 8px 8px 16px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:22px;
+    box-shadow:var(--shadow-md);
   }
+  /* These two IDs are the only things that actually sit inside the
+     composer shell — #dietitian-input also carries .ask-input, which is
+     shared by plenty of standalone single-line fields elsewhere that DO
+     want their own visible border, so the override has to be scoped here
+     rather than changing .ask-input itself. */
+  #dietitian-input, #chatHomeInput{
+    border:none;
+    outline:none;
+    background:transparent;
+    padding:8px 4px;
+    font-size:16px;
+  }
+  #dietitian-input::placeholder, #chatHomeInput::placeholder{
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  #dietitian-go, #chatHomeSend{
+    background:var(--brand);
+    color:#fff;
+    border-radius:16px;
+  }
+  #dietitian-go:disabled, #chatHomeSend:disabled{ background:#A9D6BC; cursor:default; }
   .taste-input-row{
     display:flex;
     gap:8px;
@@ -1243,6 +1307,26 @@
   }
   .drawer-icon:hover{ background:rgba(255,255,255,0.22); }
   .drawer-icon[hidden]{ display:none; }
+
+  /* Your Dietitian only: the conversation itself should carry the visual
+     authority, not a full-width green slab — every other drawer view keeps
+     the standard header untouched, scoped the same way .drawer-body
+     already special-cases #view-chat. */
+  .drawer:has(#view-chat:not([hidden])) .drawer-head{
+    background:#fff;
+    color:var(--text);
+    border-bottom:1px solid var(--line);
+    padding:12px 10px;
+  }
+  .drawer:has(#view-chat:not([hidden])) .drawer-head h3{
+    font-size:14px;
+    color:var(--text);
+  }
+  .drawer:has(#view-chat:not([hidden])) .drawer-icon{
+    background:transparent;
+    color:var(--text);
+  }
+  .drawer:has(#view-chat:not([hidden])) .drawer-icon:hover{ background:#F0F4F1; }
 
   .drawer-body{
     flex:1;
@@ -1997,11 +2081,28 @@ function switchConversation(id){
 // Claude's replies use these naturally; this just renders them instead of
 // showing the raw ** and - characters as literal text.
 function renderMarkdown(text){
-  const inline = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Order matters: bold's ** pairs must be consumed before the italic
+  // pass runs, or a lone * inside already-escaped text would get read as
+  // an italic marker and mangle the bold pairing.
+  const inline = (s) => {
+    let out = escapeHtml(s);
+    out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    out = out.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return out;
+  };
   const blocks = String(text || '').split(/\n{2,}/);
   return blocks.map(block=>{
     const lines = block.split('\n').filter(l => l.trim() !== '');
     if(!lines.length) return '';
+    if(lines.length === 1){
+      const heading = lines[0].match(/^(#{1,6})\s+(.*)$/);
+      if(heading){
+        const tag = ['h1','h2','h3'][Math.min(heading[1].length, 3) - 1];
+        return `<${tag}>${inline(heading[2])}</${tag}>`;
+      }
+    }
     if(lines.every(l => /^\s*[-*]\s+/.test(l))){
       return '<ul>' + lines.map(l => `<li>${inline(l.replace(/^\s*[-*]\s+/, ''))}</li>`).join('') + '</ul>';
     }
@@ -2019,17 +2120,41 @@ function renderChatLog(){
   if(!dietitianHistory.length){
     log.innerHTML = '<div class="chat-empty">Bring up anything food-related — a dish you love and why, how to make something at home, related ideas. Not scoped to a protein or the weekly plan.</div>';
   }
-  dietitianHistory.forEach((msg)=>{
+  let lastAssistantIndex = -1;
+  dietitianHistory.forEach((m, i) => { if(m.role === 'assistant') lastAssistantIndex = i; });
+  dietitianHistory.forEach((msg, mi)=>{
     const div = document.createElement('div');
     div.className = 'msg ' + msg.role;
     if(msg.role === 'assistant'){
       div.innerHTML = renderMarkdown(msg.text);
+      // Retry only makes sense for the most recent reply — regenerating an
+      // older one would orphan everything that came after it.
+      if(mi === lastAssistantIndex){
+        const actions = document.createElement('div');
+        actions.className = 'msg-actions';
+        actions.innerHTML = `<button class="msg-action" data-action="copy">Copy</button><button class="msg-action" data-action="retry">Retry</button>`;
+        actions.querySelector('[data-action="copy"]').onclick = ()=> copyMessageText(msg.text);
+        actions.querySelector('[data-action="retry"]').onclick = ()=> retryLastDietitianMessage();
+        div.appendChild(actions);
+      }
     } else {
       div.textContent = msg.text;
     }
     log.appendChild(div);
   });
   log.scrollTop = log.scrollHeight;
+}
+
+function copyMessageText(text){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  toast('Copied.');
 }
 
 // Applies LISTOPS the model emits. Meal ops touch the global, week-scoped
@@ -2147,6 +2272,30 @@ async function sendDietitianMessage(){
   input.value = '';
   resetComposerHeight(input);
   saveActiveConversation();
+  await runDietitianTurn();
+}
+
+// Regenerates the most recent reply in place: drops it and re-runs the
+// same turn against whatever user message is already last in history —
+// no new user turn gets pushed, so this can't duplicate anything.
+async function retryLastDietitianMessage(){
+  if(!dietitianHistory.length) return;
+  if(dietitianHistory[dietitianHistory.length - 1].role !== 'assistant') return;
+  if(!apiKey){
+    apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
+    if(!apiKey) return;
+    try { localStorage.setItem('sw_api_key', apiKey); } catch(e){}
+  }
+  dietitianHistory.pop();
+  renderChatLog();
+  await runDietitianTurn();
+}
+
+// Shared by a normal send and a retry — everything from here on only
+// cares that the last entry in dietitianHistory is the user turn to
+// answer, not how it got there.
+async function runDietitianTurn(){
+  const activeConv = dietitianConversations.find(c=>c.id===activeConversationId);
   dietitianHistory.push({ role:'assistant thinking', text:'...' });
   renderChatLog();
 
@@ -2170,7 +2319,6 @@ To change a list, end your reply with a line "LISTOPS: " followed by a JSON arra
   const apiMessages = dietitianHistory
     .filter(m => m.role === 'user' || m.role === 'assistant')
     .map(m => ({ role: m.role, content: m.text }));
-  apiMessages.push({ role: 'user', content: text });
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {

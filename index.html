@@ -2319,7 +2319,7 @@ How you write: lead with the actual point, no "Great question!" or complimenting
 
 If you name specific dishes worth remembering, end your reply with a line "IDEAS: " followed by a JSON array of objects like IDEAS: [{"title":"Potato Cheddar Chive Bake","category":"Breakfast"}] — category must be exactly one of "Breakfast", "Meals", "Snacks", "Misc". If nothing's worth naming as a keepable idea this reply, use IDEAS: []. This line is stripped before display, so it doesn't count as your reply's actual closing line.
 
-Two more running lists exist alongside this, separate from the IDEAS mechanism above: "This week's meals," grouped into categories (Breakfast, Meals, and Snacks are typical starting points, but they can name any custom category, like "Pre-Workout Meal") — this one is shared across every conversation and shows up on the main planner screen, not just here, and it auto-clears itself every few days so it doesn't go stale. And a flat "Grocery list" of ingredients, which renders live in a panel above this chat and is scoped to just this one conversation. Critical: only touch either list when they explicitly ask you to — brainstorming a dish or ingredient out loud is never itself a request to add it, even if it's a great idea. Wait for something like "add X to list," "add meal Y to breakfast," "add a category for Z," or "clear the list." If it's ambiguous whether they want something added, ask rather than guessing.${listCtx}
+Two more running lists exist alongside this, separate from the IDEAS mechanism above: "This week's meals," grouped into categories — use exactly these names: "Breakfast", "Meals", "Pre-workout meals", "Snacks", or "None" for a meal that doesn't fit (they can still ask for a custom category, but default to these) — this one is shared across every conversation and shows up on the main planner screen, not just here, and it auto-clears itself every few days so it doesn't go stale. And a flat "Grocery list" of ingredients, which renders live in a panel above this chat and is scoped to just this one conversation. Critical: only touch either list when they explicitly ask you to — brainstorming a dish or ingredient out loud is never itself a request to add it, even if it's a great idea. Wait for something like "add X to list," "add meal Y to breakfast," "add a category for Z," or "clear the list." If it's ambiguous whether they want something added, ask rather than guessing.${listCtx}
 
 To change a list, end your reply with a line "LISTOPS: " followed by a JSON array of operations, using exactly these shapes: {"op":"add_category","category":"Name"} (creates an empty category), {"op":"add_meal","category":"Breakfast","item":"Name"}, {"op":"strike_meal","category":"Breakfast","item":"Name"} (marks a meal covered/handled, not rejected — use when they say something like "ingredients are already on the list" or "that one's covered"), {"op":"unstrike_meal","category":"Breakfast","item":"Name"}, {"op":"add_grocery","item":"ingredient"}, {"op":"clear_meals"} / {"op":"clear_grocery"} (wipes one list — e.g. if they say to start blank or that a send was a mistake). If nothing on either list changes this reply, omit the line entirely or use LISTOPS: []. Since the lists render live in their own panel, don't reprint the whole list back to them in your reply text — a short confirmation of what changed is enough (or a note that it's already there, using the current lists above to catch duplicates yourself). This line is also stripped before display.`;
 
@@ -4338,20 +4338,14 @@ function renderWeekMealCategoryEditable(cat, ci){
   `;
 }
 
-// Meal first, category second: one add row at the bottom. The dropdown
-// lists existing categories plus "New category…", which reveals a name
-// field — so nobody has to create a category before they can add a meal.
-let weekMealsPickedCat = '';
-const WM_NEW_CAT = '__new__';
+// Meal first, category second: one add row at the bottom with a fixed set
+// of categories, so nothing has to be created before a meal can be added.
+const WM_CATEGORIES = ['Breakfast', 'Meals', 'Pre-workout meals', 'Snacks', 'None'];
+let weekMealsPickedCat = 'Meals';
 
-function addWeekMealWithCategory(text, catValue, newCatName){
+function addWeekMealWithCategory(text, catName){
   const val = (text || '').trim();
   if(!val){ toast('Type a meal first.', 'warn'); return false; }
-  let catName = catValue;
-  if(catValue === WM_NEW_CAT){
-    catName = (newCatName || '').trim();
-    if(!catName){ toast('Name the new category.', 'warn'); return false; }
-  }
   let cat = weekMeals.find(c => c.category.toLowerCase() === catName.toLowerCase());
   if(!cat){ cat = { category: catName, items: [] }; weekMeals.push(cat); }
   if(cat.items.some(i => i.text.toLowerCase() === val.toLowerCase())){
@@ -4359,7 +4353,7 @@ function addWeekMealWithCategory(text, catValue, newCatName){
     return false;
   }
   cat.items.push({ text: val, struck: false });
-  weekMealsPickedCat = cat.category;
+  weekMealsPickedCat = catName;
   markWeekMealsActivity();
   saveWeekMeals();
   renderWeekMealsPanel();
@@ -4375,18 +4369,15 @@ function renderWeekMealsPanel(){
     ? weekMeals.map((cat, ci) => weekMealsEditMode ? renderWeekMealCategoryEditable(cat, ci) : renderWeekMealCategoryReadOnly(cat)).join('')
     : `<div class="cl-empty">${weekMealsEditMode ? 'Nothing yet — add a meal below, or talk it through with Your Dietitian.' : 'Nothing yet — talk it through with Your Dietitian, or tap Edit to add your own.'}</div>`;
 
-  if(!weekMeals.some(c => c.category === weekMealsPickedCat)) weekMealsPickedCat = weekMeals.length ? weekMeals[0].category : WM_NEW_CAT;
   const addMealHtml = weekMealsEditMode
     ? `<div class="wm-add-meal">
         <input type="text" class="wm-add-input" id="wmMealInput" placeholder="Add a meal">
         <div class="wm-add-meal-row">
           <select class="wm-add-select" id="wmCatSelect">
-            ${weekMeals.map(c => `<option value="${escapeHtml(c.category)}"${c.category === weekMealsPickedCat ? ' selected' : ''}>${escapeHtml(c.category)}</option>`).join('')}
-            <option value="${WM_NEW_CAT}"${weekMealsPickedCat === WM_NEW_CAT ? ' selected' : ''}>New category…</option>
+            ${WM_CATEGORIES.map(c => `<option value="${c}"${c === weekMealsPickedCat ? ' selected' : ''}>${c}</option>`).join('')}
           </select>
           <button class="wm-add-btn" id="wmAddMealBtn">+ Add</button>
         </div>
-        <input type="text" class="wm-add-input" id="wmNewCatInput" placeholder="New category name"${weekMealsPickedCat === WM_NEW_CAT ? '' : ' hidden'}>
       </div>`
     : '';
 
@@ -4412,16 +4403,10 @@ function renderWeekMealsPanel(){
   });
   const mealInput = wrap.querySelector('#wmMealInput');
   const catSelect = wrap.querySelector('#wmCatSelect');
-  const newCatInput = wrap.querySelector('#wmNewCatInput');
-  catSelect.onchange = ()=>{
-    weekMealsPickedCat = catSelect.value;
-    newCatInput.hidden = catSelect.value !== WM_NEW_CAT;
-    if(!newCatInput.hidden) newCatInput.focus();
-  };
-  const go = ()=>{ addWeekMealWithCategory(mealInput.value, catSelect.value, newCatInput.value); };
+  catSelect.onchange = ()=>{ weekMealsPickedCat = catSelect.value; };
+  const go = ()=>{ addWeekMealWithCategory(mealInput.value, catSelect.value); };
   wrap.querySelector('#wmAddMealBtn').onclick = go;
   mealInput.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
-  newCatInput.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
 }
 
 async function saveCustomCombo(pid, combo){

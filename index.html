@@ -801,6 +801,7 @@
     vertical-align:1px;
   }
   .sug-blurb{ font-size:12px; color:var(--muted); line-height:1.45; margin-top:2px; }
+  .sug-foot{ font-size:11.5px; color:var(--muted); margin-top:10px; }
   .sug-add:disabled{ background:#A9D6BC; cursor:default; }
   .wm-add-meal{ display:flex; flex-direction:column; gap:6px; margin-top:12px; }
   .wm-add-meal-row{ display:flex; gap:6px; }
@@ -4096,7 +4097,27 @@ function renderWeekMealsPanel(){
 const LS_SUGGESTIONS = 'sw_suggestions_v1';
 const SUGGEST_CATEGORIES = ['Breakfast', 'Meals', 'Pre-workout meals', 'Snacks'];
 let suggestions = (lsGet(LS_SUGGESTIONS) || {}).items || [];
+let suggestionsGeneratedAt = (lsGet(LS_SUGGESTIONS) || {}).generated_at || null;
 let suggestBusy = false;
+
+// There's no server-side scheduler in this app, so "every day at 6 AM"
+// means: whenever the app opens or comes back to the foreground, if the
+// current batch predates the most recent 6:00 AM, make a new one. It needs
+// the API key already saved on this device — it never pops a key prompt
+// on its own — and fails quietly rather than toasting at someone who
+// didn't ask.
+function mostRecentSuggestionSlot(){
+  const slot = new Date();
+  slot.setHours(6, 0, 0, 0);
+  if(slot > new Date()) slot.setDate(slot.getDate() - 1);
+  return slot;
+}
+
+function maybeAutoRefreshSuggestions(){
+  if(suggestBusy || !apiKey) return;
+  if(suggestionsGeneratedAt && new Date(suggestionsGeneratedAt) >= mostRecentSuggestionSlot()) return;
+  generateSuggestions({ auto:true });
+}
 
 function suggestionContext(){
   const tasteContext = tasteNotes.length ? `\n\nThings this person has noted about their taste over time: ${tasteNotes.map(n=>n.note).join('; ')}.` : '';
@@ -4108,7 +4129,8 @@ function suggestionContext(){
   return `${profileContext()}${tasteContext}${saved}${historyContext()}${favContext}${discoverFeedbackContext()}${onListCtx}`;
 }
 
-async function generateSuggestions(){
+async function generateSuggestions(opts){
+  const auto = !!(opts && opts.auto);
   if(suggestBusy) return;
   if(!apiKey){
     apiKey = prompt('Paste your Anthropic API key (stored locally on this device only):');
@@ -4156,10 +4178,11 @@ async function generateSuggestions(){
     const textBlock = (data.content || []).find(c=>c.type==='text');
     const parsed = JSON.parse(textBlock.text);
     suggestions = (parsed.suggestions || []).map(x => ({ ...x, added:false }));
-    lsSet(LS_SUGGESTIONS, { items: suggestions, generated_at: new Date().toISOString() });
+    suggestionsGeneratedAt = new Date().toISOString();
+    lsSet(LS_SUGGESTIONS, { items: suggestions, generated_at: suggestionsGeneratedAt });
   } catch(err){
     console.warn('Suggestions failed:', err);
-    toast('Could not get suggestions — ' + (err.message || 'try again.'), 'error');
+    if(!auto) toast('Could not get suggestions — ' + (err.message || 'try again.'), 'error');
   } finally {
     suggestBusy = false;
     renderSuggestions();
@@ -4171,7 +4194,7 @@ function addSuggestion(i){
   if(!sug || sug.added) return;
   if(addWeekMealWithCategory(sug.title, sug.category)){
     sug.added = true;
-    lsSet(LS_SUGGESTIONS, { items: suggestions });
+    lsSet(LS_SUGGESTIONS, { items: suggestions, generated_at: suggestionsGeneratedAt });
     renderSuggestions();
   }
 }
@@ -4201,6 +4224,10 @@ function renderSuggestions(){
         </div>`).join('')}
     </div>`;
   }).join('');
+  if(suggestionsGeneratedAt){
+    const when = new Date(suggestionsGeneratedAt).toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    body.innerHTML += `<div class="sug-foot">Refreshes daily at 6 AM when you open the app · last updated ${when}</div>`;
+  }
   body.querySelectorAll('.sug-add').forEach(b => { b.onclick = ()=> addSuggestion(parseInt(b.dataset.i)); });
 }
 
@@ -4586,13 +4613,21 @@ async function init(){
   try { loadDiscoverFeed(); } catch(e){ console.warn('Discover feed failed to load:', e); }
   hydrated = true;                // saving is armed only after the load settles
   renderAll();
-  loadTasteNotes().catch(e=> console.warn('Taste notes failed to load:', e));
-  loadFoodLogContext().catch(e=> console.warn('Food Log context failed to load:', e));
-  loadDiscoverFeedback().catch(e=> console.warn('Discover feedback failed to load:', e));
+  // The suggestion prompt reads all three of these, so a daily refresh has
+  // to wait for them rather than fire alongside.
+  await Promise.all([
+    loadTasteNotes().catch(e=> console.warn('Taste notes failed to load:', e)),
+    loadFoodLogContext().catch(e=> console.warn('Food Log context failed to load:', e)),
+    loadDiscoverFeedback().catch(e=> console.warn('Discover feedback failed to load:', e)),
+  ]);
+  maybeAutoRefreshSuggestions();
 }
 init();
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && hydrated) maybeAutoRefreshSuggestions();
+});
 
-document.getElementById('suggestBtn').onclick = generateSuggestions;
+document.getElementById('suggestBtn').onclick = ()=> generateSuggestions();
 document.getElementById('taste-go').onclick = addTasteNote;
 document.getElementById('taste-input').onkeydown = (e)=>{ if(e.key==='Enter') addTasteNote(); };
 

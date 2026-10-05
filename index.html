@@ -781,12 +781,6 @@
     gap:8px;
   }
   .wm-item-text{ flex:1; cursor:pointer; }
-  .wm-add-row, .wm-add-category-row{
-    display:flex;
-    gap:6px;
-    margin-top:6px;
-  }
-  .wm-add-category-row{ margin-top:12px; }
   .wm-add-input{
     flex:1;
     min-width:0;
@@ -795,6 +789,19 @@
     padding:6px 10px;
     font-size:12.5px;
     font-family:inherit;
+  }
+  .wm-add-meal{ display:flex; flex-direction:column; gap:6px; margin-top:12px; }
+  .wm-add-meal-row{ display:flex; gap:6px; }
+  .wm-add-select{
+    flex:1;
+    min-width:0;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:6px 10px;
+    font-size:12.5px;
+    font-family:inherit;
+    background:#fff;
+    color:var(--text);
   }
   .wm-add-btn{
     flex-shrink:0;
@@ -4289,35 +4296,9 @@ function removeWeekMealItem(ci, ii){
   renderWeekMealsPanel();
 }
 
-function addWeekMealItem(ci, text){
-  const val = (text || '').trim();
-  const cat = weekMeals[ci];
-  if(!val || !cat) return;
-  if(cat.items.some(i => i.text.toLowerCase() === val.toLowerCase())){
-    toast('Already on there.', 'warn');
-    return;
-  }
-  cat.items.push({ text: val, struck: false });
-  markWeekMealsActivity();
-  saveWeekMeals();
-  renderWeekMealsPanel();
-}
-
 function removeWeekMealCategory(ci){
   weekMeals.splice(ci, 1);
   markWeekMealsActivity();
-  saveWeekMeals();
-  renderWeekMealsPanel();
-}
-
-function addWeekMealCategory(name){
-  const val = (name || '').trim();
-  if(!val) return;
-  if(weekMeals.some(c => c.category.toLowerCase() === val.toLowerCase())){
-    toast('That category already exists.', 'warn');
-    return;
-  }
-  weekMeals.push({ category: val, items: [] });
   saveWeekMeals();
   renderWeekMealsPanel();
 }
@@ -4353,12 +4334,36 @@ function renderWeekMealCategoryEditable(cat, ci){
             </li>
           `).join('') + '</ul>'
         : '<div class="cl-empty">— empty —</div>'}
-      <div class="wm-add-row">
-        <input type="text" class="wm-add-input" data-ci="${ci}" placeholder="Add to ${escapeHtml(cat.category)}">
-        <button class="wm-add-btn" data-ci="${ci}">+</button>
-      </div>
     </div>
   `;
+}
+
+// Meal first, category second: one add row at the bottom. The dropdown
+// lists existing categories plus "New category…", which reveals a name
+// field — so nobody has to create a category before they can add a meal.
+let weekMealsPickedCat = '';
+const WM_NEW_CAT = '__new__';
+
+function addWeekMealWithCategory(text, catValue, newCatName){
+  const val = (text || '').trim();
+  if(!val){ toast('Type a meal first.', 'warn'); return false; }
+  let catName = catValue;
+  if(catValue === WM_NEW_CAT){
+    catName = (newCatName || '').trim();
+    if(!catName){ toast('Name the new category.', 'warn'); return false; }
+  }
+  let cat = weekMeals.find(c => c.category.toLowerCase() === catName.toLowerCase());
+  if(!cat){ cat = { category: catName, items: [] }; weekMeals.push(cat); }
+  if(cat.items.some(i => i.text.toLowerCase() === val.toLowerCase())){
+    toast('Already on there.', 'warn');
+    return false;
+  }
+  cat.items.push({ text: val, struck: false });
+  weekMealsPickedCat = cat.category;
+  markWeekMealsActivity();
+  saveWeekMeals();
+  renderWeekMealsPanel();
+  return true;
 }
 
 function renderWeekMealsPanel(){
@@ -4368,18 +4373,26 @@ function renderWeekMealsPanel(){
 
   const catsHtml = weekMeals.length
     ? weekMeals.map((cat, ci) => weekMealsEditMode ? renderWeekMealCategoryEditable(cat, ci) : renderWeekMealCategoryReadOnly(cat)).join('')
-    : `<div class="cl-empty">${weekMealsEditMode ? 'Nothing yet — add a category below, or talk it through with Your Dietitian.' : 'Nothing yet — talk it through with Your Dietitian, or tap Edit to add your own.'}</div>`;
+    : `<div class="cl-empty">${weekMealsEditMode ? 'Nothing yet — add a meal below, or talk it through with Your Dietitian.' : 'Nothing yet — talk it through with Your Dietitian, or tap Edit to add your own.'}</div>`;
 
-  const addCategoryHtml = weekMealsEditMode
-    ? `<div class="wm-add-category-row">
-        <input type="text" class="wm-add-input" id="wmNewCategoryInput" placeholder="New category">
-        <button class="wm-add-btn" id="wmAddCategoryBtn">+ Add category</button>
+  if(!weekMeals.some(c => c.category === weekMealsPickedCat)) weekMealsPickedCat = weekMeals.length ? weekMeals[0].category : WM_NEW_CAT;
+  const addMealHtml = weekMealsEditMode
+    ? `<div class="wm-add-meal">
+        <input type="text" class="wm-add-input" id="wmMealInput" placeholder="Add a meal">
+        <div class="wm-add-meal-row">
+          <select class="wm-add-select" id="wmCatSelect">
+            ${weekMeals.map(c => `<option value="${escapeHtml(c.category)}"${c.category === weekMealsPickedCat ? ' selected' : ''}>${escapeHtml(c.category)}</option>`).join('')}
+            <option value="${WM_NEW_CAT}"${weekMealsPickedCat === WM_NEW_CAT ? ' selected' : ''}>New category…</option>
+          </select>
+          <button class="wm-add-btn" id="wmAddMealBtn">+ Add</button>
+        </div>
+        <input type="text" class="wm-add-input" id="wmNewCatInput" placeholder="New category name"${weekMealsPickedCat === WM_NEW_CAT ? '' : ' hidden'}>
       </div>`
     : '';
 
   wrap.innerHTML = `<div class="sec-head wm-head"><h2>🍽️ This week's meals</h2><button class="wm-edit-toggle" id="wmEditToggle">${weekMealsEditMode ? 'Done' : 'Edit'}</button></div>` +
     `<div class="sub">Built from Your Dietitian${weekMealsEditMode ? ', editable here too' : ''} — clears itself after a few days of quiet, archives for good once the week turns over.</div>` +
-    catsHtml + addCategoryHtml;
+    catsHtml + addMealHtml;
 
   wrap.querySelector('#wmEditToggle').onclick = ()=>{
     weekMealsEditMode = !weekMealsEditMode;
@@ -4397,18 +4410,18 @@ function renderWeekMealsPanel(){
   wrap.querySelectorAll('.wm-cat-remove').forEach(el=>{
     el.onclick = ()=> removeWeekMealCategory(parseInt(el.dataset.ci));
   });
-  wrap.querySelectorAll('.wm-add-row').forEach(row=>{
-    const input = row.querySelector('.wm-add-input');
-    const btn = row.querySelector('.wm-add-btn');
-    const go = ()=>{ addWeekMealItem(parseInt(input.dataset.ci), input.value); input.value = ''; };
-    btn.onclick = go;
-    input.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
-  });
-  const newCatInput = wrap.querySelector('#wmNewCategoryInput');
-  const newCatBtn = wrap.querySelector('#wmAddCategoryBtn');
-  const addCat = ()=>{ addWeekMealCategory(newCatInput.value); newCatInput.value = ''; };
-  newCatBtn.onclick = addCat;
-  newCatInput.onkeydown = (e)=>{ if(e.key==='Enter') addCat(); };
+  const mealInput = wrap.querySelector('#wmMealInput');
+  const catSelect = wrap.querySelector('#wmCatSelect');
+  const newCatInput = wrap.querySelector('#wmNewCatInput');
+  catSelect.onchange = ()=>{
+    weekMealsPickedCat = catSelect.value;
+    newCatInput.hidden = catSelect.value !== WM_NEW_CAT;
+    if(!newCatInput.hidden) newCatInput.focus();
+  };
+  const go = ()=>{ addWeekMealWithCategory(mealInput.value, catSelect.value, newCatInput.value); };
+  wrap.querySelector('#wmAddMealBtn').onclick = go;
+  mealInput.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
+  newCatInput.onkeydown = (e)=>{ if(e.key==='Enter') go(); };
 }
 
 async function saveCustomCombo(pid, combo){

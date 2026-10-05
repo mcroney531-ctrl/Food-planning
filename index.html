@@ -1647,14 +1647,8 @@ const SUPABASE_KEY = "sb_publishable_w5izyYtgIXD-pQvjlkn4jg_DtGJq_7j";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ---------- DATA ----------
-const PROTEINS = [
-  { id:'beef', name:'Ground Beef', freezer:false, combos:['Tacos','Burrito Bowl','Meatballs','Spaghetti','Beef & Rice Skillet','Stuffed Peppers','Sloppy Joes','Smash Bowl (naan + beef + sauce)','Nachos','Beef Chili'] },
-  { id:'thighs', name:'Chicken Thighs', freezer:false, combos:['Stir Fry','Grain Bowl','Wraps','Fajitas','BBQ Thighs + Rice','Chicken Quesadilla','Naan Chicken Melt','Chicken Caesar Wrap','Sheet-Pan Thighs + Veg','Buffalo Chicken Bowl'] },
-  { id:'burgers', name:'Burgers', freezer:false, combos:['Classic Burger','Lettuce Wrap','Burger Bowl','Naan Burger Melt','Patty Melt','Burger Tacos'] },
-  { id:'scampi', name:'Frozen Shrimp Scampi', freezer:true, combos:['Over Rice + Aioli','With Penne','Shrimp Naan Wrap','Shrimp Tacos','Shrimp + Rice Bowl w/ Sriracha Mayo'] },
-  { id:'brisket', name:'Premade Brisket', freezer:false, combos:['On Bread','With Rice','Brisket Tacos','Brisket Naan Melt','Brisket Quesadilla','Brisket Mac Mashup (w/ Annie\'s cup)'] },
-  { id:'rollups', name:'Buffalo Chicken Rollups', freezer:true, combos:['As-is w/ Ranch','Chopped Over Rice','In a Wrap w/ Ranch'] },
-];
+// Starts empty on purpose — proteins are whatever you add (see addCustomItem).
+const PROTEINS = [];
 
 const DAYS = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
 
@@ -3000,12 +2994,13 @@ function renderCombos(){
   const section = document.getElementById('comboSection');
   const el = document.getElementById('comboBlocks');
   el.innerHTML = '';
-  if(selectedProteins.size === 0){
+  const picked = PROTEINS.filter(p=>selectedProteins.has(p.id));
+  if(picked.length === 0){
     section.style.display = 'none';
     return;
   }
   section.style.display = 'block';
-  PROTEINS.filter(p=>selectedProteins.has(p.id)).forEach(p=>{
+  picked.forEach(p=>{
     const block = document.createElement('div');
     block.className = 'protein-block';
     const tagHtml = p.freezer ? '<span class="tag freezer">FREEZER</span>' : '<span class="tag fresh">FRESH-COOK</span>';
@@ -3582,7 +3577,7 @@ function renderProfileView(){
 }
 
 // ---------- CUSTOM ITEMS ----------
-// PROTEINS above is the starting set. Anything you
+// PROTEINS starts empty. Anything you
 // add lives here instead, so the lists can grow without editing the page.
 const LS_ITEMS = 'sw_custom_items_v1';
 let customItems = { protein:[], breakfast:[], stock:[] };   // {name, freezer}

@@ -1530,7 +1530,7 @@
   <header>
     <h1>Sunday Setup</h1>
     <p>Decide once. Execute all week.</p>
-    <button type="button" class="account-chip" id="accountChip" aria-haspopup="dialog">Sign in</button>
+    <button type="button" class="account-chip" id="accountChip" aria-haspopup="dialog">Account</button>
   </header>
 
   <nav class="top-banner" id="topBanner">
@@ -3898,7 +3898,7 @@ function lsSet(key, value){
 
 function scheduleSave(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveWeek, 400);   // debounce rapid chip tapping
+  saveTimer = setTimeout(()=>{ saveTimer = null; saveWeek(); }, 400);   // debounce rapid chip tapping
 }
 
 async function saveWeek(){
@@ -4637,13 +4637,17 @@ document.addEventListener('keydown', (e)=>{
 const LS_EXPECT_SESSION = 'fp_expect_session';
 let authUser = null;
 let authLost = false;
+let authPending = false;   // session stored but couldn't refresh (network); will retry
 let signingOut = false;
 
 function renderAccountChip(){
   const chip = document.getElementById('accountChip');
   chip.classList.toggle('signed-in', !!authUser);
   chip.classList.toggle('warn', !authUser && authLost);
-  chip.textContent = authUser ? '✓ Signed in' : (authLost ? '⚠ Signed out — sign in again' : 'Sign in');
+  chip.textContent = authUser ? '✓ Signed in'
+    : authPending ? 'Offline — sign-in will resume'
+    : authLost ? '⚠ Signed out — sign in again'
+    : 'Sign in';
 }
 
 function markSessionLost(){
@@ -4713,24 +4717,42 @@ async function signIn(body){
 
 async function signOut(){
   signingOut = true;
+  // Save while still signed in: once the lockdown lands, the same write
+  // made after sign-out would be refused.
+  await flushPendingSave();
   try { localStorage.removeItem(LS_EXPECT_SESSION); } catch(e){}
   await sb.auth.signOut();
-  await reloadAfterAuthChange();
+  location.reload();
+}
+
+async function flushPendingSave(){
+  if(!(hydrated && saveTimer)) return;
+  clearTimeout(saveTimer); saveTimer = null;
+  try { await saveWeek(); } catch(e){}
 }
 
 async function reloadAfterAuthChange(){
-  // A pending week save would otherwise be dropped by the reload.
-  if(hydrated && saveTimer){ clearTimeout(saveTimer); saveTimer = null; try { await saveWeek(); } catch(e){} }
+  await flushPendingSave();   // a pending week save would otherwise be dropped
   location.reload();
 }
 
 sb.auth.onAuthStateChange((event, session)=>{
   if(event === 'SIGNED_OUT' && !signingOut && authUser) markSessionLost();
+  // The stored session refreshed after a network failure at launch: data
+  // loaded without it, so load again now that it's back.
+  if(authPending && session){ authPending = false; reloadAfterAuthChange(); return; }
   applySession(session);
 });
 
 async function initAuth(){
-  const { data } = await sb.auth.getSession();
+  const { data, error } = await sb.auth.getSession();
+  // A network failure while refreshing isn't a sign-out: supabase-js keeps the
+  // session and retries in the background, so say so rather than warn.
+  if(error && supabase.isAuthRetryableFetchError(error)){
+    authPending = true;
+    renderAccountChip();
+    return;
+  }
   applySession(data.session);
   let expected = false;
   try { expected = localStorage.getItem(LS_EXPECT_SESSION) === '1'; } catch(e){}

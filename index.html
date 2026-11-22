@@ -4721,7 +4721,7 @@ async function signOut(){
   // made after sign-out would be refused.
   await flushPendingSave();
   try { localStorage.removeItem(LS_EXPECT_SESSION); } catch(e){}
-  await sb.auth.signOut();
+  await sb.auth.signOut({ scope: 'local' });   // this device only: the owner account is shared with other apps
   location.reload();
 }
 

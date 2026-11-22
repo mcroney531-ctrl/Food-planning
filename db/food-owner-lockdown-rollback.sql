@@ -57,15 +57,15 @@ create policy food_week_plans_insert on public.food_week_plans as permissive for
 create policy food_week_plans_select on public.food_week_plans as permissive for select to anon, authenticated using (true);
 create policy food_week_plans_update on public.food_week_plans as permissive for update to anon, authenticated using (true) with check (true);
 
-grant delete, insert, references, select, trigger, truncate, update on public.food_custom_combos to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_custom_items to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_dietitian_chat to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_dietitian_conversations to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_discover_feedback to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_log_items to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_taste_notes to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_taste_profile to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_week_plans to anon, authenticated;
+grant all on public.food_custom_combos to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_custom_items to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_dietitian_chat to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_dietitian_conversations to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_discover_feedback to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_log_items to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_taste_notes to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_taste_profile to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_week_plans to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
 grant select, update, usage on sequence public.food_custom_combos_id_seq to anon, authenticated;
 grant select, update, usage on sequence public.food_custom_items_id_seq to anon, authenticated;
 grant select, update, usage on sequence public.food_discover_feedback_id_seq to anon, authenticated;

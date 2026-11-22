@@ -343,7 +343,7 @@ insert into _cases (label, sql, owner_e, other_e, anon_e) values
   ('truncate food_week_plans', 'truncate public.food_week_plans', '42501', null, null),
   ('select food_week_plans', 'select 1 from public.food_week_plans limit 1', null, null, '42501'),
   ('select food_week_plans', 'select 1 from public.food_week_plans', null, 'ok0', null),
-  ('dietitian_chat insert (unused by apps, op kept)', 'insert into public.food_dietitian_chat (id, messages) values (999, ''[]'') on conflict (id) do nothing', 'ok', null, null),
+  ('dietitian_chat upsert (unused by apps, op kept; table is single-row id=1)', 'insert into public.food_dietitian_chat (id, messages) values (1, ''[]'') on conflict (id) do update set updated_at = public.food_dietitian_chat.updated_at', 'ok', '42501', '42501'),
   ('is_food_owner() is true', 'select 1 where private.is_food_owner()', 'ok+', null, null),
   ('is_food_owner() is false', 'select 1 where private.is_food_owner()', null, 'ok0', null),
   ('cannot call is_food_owner()', 'select private.is_food_owner()', null, null, '42501'),
@@ -401,7 +401,8 @@ select 'effective: '||r||' on '||t, e,
     case when has_table_privilege(r, 'public.'||t, 'DELETE') then 'DELETE' end,
     case when has_table_privilege(r, 'public.'||t, 'TRUNCATE') then 'TRUNCATE' end,
     case when has_table_privilege(r, 'public.'||t, 'REFERENCES') then 'REFERENCES' end,
-    case when has_table_privilege(r, 'public.'||t, 'TRIGGER') then 'TRIGGER' end], null), ','), ''), 'none') as got,
+    case when has_table_privilege(r, 'public.'||t, 'TRIGGER') then 'TRIGGER' end,
+    case when current_setting('server_version_num')::int >= 170000 and has_table_privilege(r, 'public.'||t, 'MAINTAIN') then 'MAINTAIN' end], null), ','), ''), 'none') as got,
   null
 from (values ('food_custom_combos'), ('food_custom_items'), ('food_dietitian_chat'), ('food_dietitian_conversations'), ('food_discover_feedback'), ('food_log_items'), ('food_taste_notes'), ('food_taste_profile'), ('food_week_plans')) tt(t)
 cross join (values ('anon'), ('authenticated'), ('daily_brief_menu_reader')) rr(r)
@@ -501,15 +502,15 @@ create policy food_week_plans_insert on public.food_week_plans as permissive for
 create policy food_week_plans_select on public.food_week_plans as permissive for select to anon, authenticated using (true);
 create policy food_week_plans_update on public.food_week_plans as permissive for update to anon, authenticated using (true) with check (true);
 
-grant delete, insert, references, select, trigger, truncate, update on public.food_custom_combos to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_custom_items to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_dietitian_chat to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_dietitian_conversations to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_discover_feedback to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_log_items to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_taste_notes to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_taste_profile to anon, authenticated;
-grant delete, insert, references, select, trigger, truncate, update on public.food_week_plans to anon, authenticated;
+grant all on public.food_custom_combos to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_custom_items to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_dietitian_chat to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_dietitian_conversations to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_discover_feedback to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_log_items to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_taste_notes to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_taste_profile to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
+grant all on public.food_week_plans to anon, authenticated;   -- ALL = arwdDxtm on PG17 (includes MAINTAIN)
 grant select, update, usage on sequence public.food_custom_combos_id_seq to anon, authenticated;
 grant select, update, usage on sequence public.food_custom_items_id_seq to anon, authenticated;
 grant select, update, usage on sequence public.food_discover_feedback_id_seq to anon, authenticated;

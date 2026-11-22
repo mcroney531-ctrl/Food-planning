@@ -1503,6 +1503,23 @@
     transition:opacity .2s var(--ease), transform .2s var(--ease);
   }
   .toast.show{ opacity:1; transform:translate(-50%, 0); }
+  /* Account chip: sits under the tagline, clear of the hero art. */
+  .account-chip{
+    position:relative; z-index:1;
+    margin-top:12px;
+    display:inline-flex; align-items:center; gap:6px;
+    padding:5px 11px;
+    border:1px solid rgba(255,255,255,0.35);
+    border-radius:var(--r-pill);
+    background:rgba(255,255,255,0.12);
+    color:#fff;
+    font:inherit; font-size:12px; font-weight:600;
+    cursor:pointer;
+  }
+  .account-chip.signed-in{ background:rgba(255,255,255,0.22); }
+  .account-chip.warn{ background:var(--amber); border-color:transparent; }
+  .account-form{ display:flex; flex-direction:column; gap:8px; }
+  .account-error{ color:#8E1B23; font-size:13px; min-height:1em; }
   .toast.error{ background:#8E1B23; }
   .toast.warn{ background:var(--amber); }
 </style>
@@ -1513,6 +1530,7 @@
   <header>
     <h1>Sunday Setup</h1>
     <p>Decide once. Execute all week.</p>
+    <button type="button" class="account-chip" id="accountChip" aria-haspopup="dialog">Account</button>
   </header>
 
   <nav class="top-banner" id="topBanner">
@@ -1641,11 +1659,23 @@
   </div>
 </aside>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
 <script>
 const SUPABASE_URL = "https://fdbkdsracxomwyytfgob.supabase.co";
 const SUPABASE_KEY = "sb_publishable_w5izyYtgIXD-pQvjlkn4jg_DtGJq_7j";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Sessions persist in this app's own storage and refresh themselves, so an
+// installed PWA signs in once per device. Signed out, requests go out with
+// the publishable key exactly as before; signed in, they carry the user's
+// session. Nothing here ever logs a password or token.
+const AUTH_STORAGE_KEY = 'food-planning-auth';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,   // password sign-in only; no redirect links
+    storageKey: AUTH_STORAGE_KEY,
+  },
+});
 
 // ---------- DATA ----------
 // Starts empty on purpose — proteins are whatever you add (see addCustomItem).
@@ -3868,7 +3898,7 @@ function lsSet(key, value){
 
 function scheduleSave(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveWeek, 400);   // debounce rapid chip tapping
+  saveTimer = setTimeout(()=>{ saveTimer = null; saveWeek(); }, 400);   // debounce rapid chip tapping
 }
 
 async function saveWeek(){
@@ -4600,8 +4630,142 @@ document.addEventListener('keydown', (e)=>{
   else if(drawer.classList.contains('open')) closeDrawer();
 });
 
+// ---------- ACCOUNT ----------
+// Set while signed in, cleared only by a deliberate sign-out. If a session
+// disappears without that (refresh rejected, storage cleared), the chip turns
+// amber and says so instead of the app quietly carrying on as signed out.
+const LS_EXPECT_SESSION = 'fp_expect_session';
+let authUser = null;
+let authLost = false;
+let authPending = false;   // session stored but couldn't refresh (network); will retry
+let signingOut = false;
+
+function renderAccountChip(){
+  const chip = document.getElementById('accountChip');
+  chip.classList.toggle('signed-in', !!authUser);
+  chip.classList.toggle('warn', !authUser && authLost);
+  chip.textContent = authUser ? '✓ Signed in'
+    : authPending ? 'Offline — sign-in will resume'
+    : authLost ? '⚠ Signed out — sign in again'
+    : 'Sign in';
+}
+
+function markSessionLost(){
+  authLost = true;
+  renderAccountChip();
+  toast("You've been signed out. Sign in again to keep syncing as you.", 'warn');
+}
+
+function applySession(session){
+  authUser = session ? session.user : null;
+  if(authUser){
+    authLost = false;
+    try { localStorage.setItem(LS_EXPECT_SESSION, '1'); } catch(e){}
+  }
+  renderAccountChip();
+}
+
+function openAccountSheet(){
+  openSheet(authUser ? 'Account' : 'Sign in', (body)=>{
+    if(authUser){
+      body.innerHTML = `
+        <div class="ask-status">Signed in as <strong></strong>. You stay signed in on this device until you sign out.</div>
+        <button class="import-choice-secondary" id="signOutBtn">Sign out</button>
+      `;
+      body.querySelector('strong').textContent = authUser.email || 'your account';
+      body.querySelector('#signOutBtn').onclick = signOut;
+      return;
+    }
+    body.innerHTML = `
+      <form class="account-form" id="signInForm" novalidate>
+        <input class="ask-input" id="signInEmail" type="email" autocomplete="username" inputmode="email" placeholder="Email" required>
+        <input class="ask-input" id="signInPassword" type="password" autocomplete="current-password" placeholder="Password" required>
+        <div class="account-error" id="signInError" role="alert"></div>
+        <button class="ask-go" id="signInBtn" type="submit">Sign in</button>
+        ${authLost ? '<button class="import-choice-secondary" id="staySignedOutBtn" type="button">Continue signed out</button>' : ''}
+      </form>
+    `;
+    body.querySelector('#signInForm').onsubmit = (e)=>{ e.preventDefault(); signIn(body); };
+    const stay = body.querySelector('#staySignedOutBtn');
+    if(stay) stay.onclick = ()=>{
+      try { localStorage.removeItem(LS_EXPECT_SESSION); } catch(e){}
+      authLost = false;
+      renderAccountChip();
+      closeSheet();
+    };
+  });
+}
+
+async function signIn(body){
+  const email = body.querySelector('#signInEmail').value.trim();
+  const password = body.querySelector('#signInPassword').value;
+  const errEl = body.querySelector('#signInError');
+  const btn = body.querySelector('#signInBtn');
+  errEl.textContent = '';
+  if(!email || !password){ errEl.textContent = 'Enter your email and password.'; return; }
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){
+    // The server's message only ("Invalid login credentials"), never the input.
+    errEl.textContent = error.message || 'Sign-in failed.';
+    btn.disabled = false; btn.textContent = 'Sign in';
+    return;
+  }
+  // Reload so every loader runs again under the new session.
+  await reloadAfterAuthChange();
+}
+
+async function signOut(){
+  signingOut = true;
+  // Save while still signed in: once the lockdown lands, the same write
+  // made after sign-out would be refused.
+  await flushPendingSave();
+  try { localStorage.removeItem(LS_EXPECT_SESSION); } catch(e){}
+  await sb.auth.signOut({ scope: 'local' });   // this device only: the owner account is shared with other apps
+  location.reload();
+}
+
+async function flushPendingSave(){
+  if(!(hydrated && saveTimer)) return;
+  clearTimeout(saveTimer); saveTimer = null;
+  try { await saveWeek(); } catch(e){}
+}
+
+async function reloadAfterAuthChange(){
+  await flushPendingSave();   // a pending week save would otherwise be dropped
+  location.reload();
+}
+
+sb.auth.onAuthStateChange((event, session)=>{
+  if(event === 'SIGNED_OUT' && !signingOut && authUser) markSessionLost();
+  // The stored session refreshed after a network failure at launch: data
+  // loaded without it, so load again now that it's back.
+  if(authPending && session){ authPending = false; reloadAfterAuthChange(); return; }
+  applySession(session);
+});
+
+async function initAuth(){
+  const { data, error } = await sb.auth.getSession();
+  // A network failure while refreshing isn't a sign-out: supabase-js keeps the
+  // session and retries in the background, so say so rather than warn.
+  if(error && supabase.isAuthRetryableFetchError(error)){
+    authPending = true;
+    renderAccountChip();
+    return;
+  }
+  applySession(data.session);
+  let expected = false;
+  try { expected = localStorage.getItem(LS_EXPECT_SESSION) === '1'; } catch(e){}
+  if(!authUser && expected) markSessionLost();
+}
+
+document.getElementById('accountChip').onclick = openAccountSheet;
+
 async function init(){
   renderAll();                    // paint immediately, don't wait on network
+  // Data requests wait for the stored session to load either way; this just
+  // gets the account chip and any "signed out" warning showing early.
+  try { await initAuth(); } catch(e){ console.warn('Auth check failed'); }
   // Each load is isolated: a throw in any one of them must not stop `hydrated`
   // from arming, or the app would silently stop saving for the whole session.
   try { await loadCustomItems(); } catch(e){ console.warn('Custom items failed to load:', e); }

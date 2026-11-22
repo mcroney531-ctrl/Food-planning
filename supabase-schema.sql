@@ -1,12 +1,54 @@
--- Sunday Setup — schema additions
+-- Sunday Setup — food_* schema (Reading Center, fdbkdsracxomwyytfgob)
 --
--- APPLIED. Live on project "Reading Center" (fdbkdsracxomwyytfgob) as migration
--- sunday_setup_week_plans_and_taste_profile. Kept here as the source of record;
--- safe to re-run, since every statement is guarded.
+-- Tables and columns only. Safe to re-run: every statement is guarded, and
+-- nothing here creates a policy or changes a grant.
 --
--- Follows the existing food_ conventions: open select/insert/update for
--- anon + authenticated, and no delete policy anywhere — "removing" something
--- flips a flag instead, so the worst case stays a reversible edit.
+-- ACCESS CONTROL IS NOT IN THIS FILE. It lives in db/food-owner-lockdown.sql
+-- (applied to production 2026-11-22 as migration food_owner_lockdown): owner-
+-- only RLS on every food_* table via a private allowlist, no anon access, no
+-- deletes. See db/README.md.
+--
+-- Earlier versions of this file created open select/insert/update policies
+-- for anon + authenticated. Those were removed on purpose: re-running them
+-- against the secured database would have added permissive policies next to
+-- the owner-only ones, and permissive policies are OR'ed — it would have
+-- silently reopened every table. Don't add `to anon` policies back.
+--
+-- On a fresh database this file alone leaves every table with RLS on and no
+-- policies, so it fails closed (nobody can read or write through the API)
+-- until db/food-owner-lockdown.sql runs.
+--
+-- No delete anywhere: "removing" something flips an archived flag instead,
+-- so the worst case stays a reversible edit.
+
+-- ---------------------------------------------------------------------------
+-- 0. Tables that predate this file. Recorded here from their production
+--    migrations (create_food_taste_notes, food_taste_notes_add_archived,
+--    create_food_log_items) so a fresh setup from this repo is complete.
+-- ---------------------------------------------------------------------------
+create table if not exists public.food_taste_notes (
+  id         bigint generated always as identity primary key,
+  note       text not null,
+  source     text default 'manual',
+  created_at timestamptz not null default now()
+);
+alter table public.food_taste_notes add column if not exists archived boolean not null default false;
+alter table public.food_taste_notes enable row level security;
+
+-- Food Log's saved items; Food-planning reads them as context and saves
+-- recipes into them. Shared by both apps.
+create table if not exists public.food_log_items (
+  id         text primary key,
+  title      text not null,
+  category   text not null,
+  image      text,
+  recipe     text,
+  calories   text,
+  source_url text,
+  created_at timestamptz not null default now(),
+  archived   boolean not null default false
+);
+alter table public.food_log_items enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- 1. food_week_plans — one row per week, so a plan survives closing the app
@@ -37,20 +79,8 @@ alter table public.food_week_plans
 
 alter table public.food_week_plans enable row level security;
 
-do $$ begin
-  create policy food_week_plans_select on public.food_week_plans
-    for select to anon, authenticated using (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_week_plans_insert on public.food_week_plans
-    for insert to anon, authenticated with check (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_week_plans_update on public.food_week_plans
-    for update to anon, authenticated using (true) with check (true);
-exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
 -- 2. food_custom_combos — swap ideas accepted from a Claude chat.
@@ -69,20 +99,8 @@ create table if not exists public.food_custom_combos (
 
 alter table public.food_custom_combos enable row level security;
 
-do $$ begin
-  create policy food_custom_combos_select on public.food_custom_combos
-    for select to anon, authenticated using (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_custom_combos_insert on public.food_custom_combos
-    for insert to anon, authenticated with check (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_custom_combos_update on public.food_custom_combos
-    for update to anon, authenticated using (true) with check (true);
-exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
 -- 3. food_custom_items — proteins, breakfasts, and pantry staples you add
@@ -101,20 +119,8 @@ create table if not exists public.food_custom_items (
 
 alter table public.food_custom_items enable row level security;
 
-do $$ begin
-  create policy food_custom_items_select on public.food_custom_items
-    for select to anon, authenticated using (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_custom_items_insert on public.food_custom_items
-    for insert to anon, authenticated with check (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_custom_items_update on public.food_custom_items
-    for update to anon, authenticated using (true) with check (true);
-exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
 -- 4. food_taste_profile — the abstraction layer over taste notes.
@@ -134,20 +140,8 @@ create table if not exists public.food_taste_profile (
 
 alter table public.food_taste_profile enable row level security;
 
-do $$ begin
-  create policy food_taste_profile_select on public.food_taste_profile
-    for select to anon, authenticated using (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_taste_profile_insert on public.food_taste_profile
-    for insert to anon, authenticated with check (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_taste_profile_update on public.food_taste_profile
-    for update to anon, authenticated using (true) with check (true);
-exception when duplicate_object then null; end $$;
 
 -- Added later; safe to run on a table that already exists.
 -- Explicit dislikes — user-asserted only, never model-inferred, so a weak
@@ -195,25 +189,13 @@ create table if not exists public.food_dietitian_chat (
 
 alter table public.food_dietitian_chat enable row level security;
 
-do $$ begin
-  create policy food_dietitian_chat_select on public.food_dietitian_chat
-    for select to anon, authenticated using (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_dietitian_chat_insert on public.food_dietitian_chat
-    for insert to anon, authenticated with check (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_dietitian_chat_update on public.food_dietitian_chat
-    for update to anon, authenticated using (true) with check (true);
-exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
 -- 6. food_discover_feedback — thumbs up/down on Discover ideas.
 --    Append-only signal log, not a piece of content anyone edits — no update
---    policy, unlike every other food_ table. A thumbs-down also triggers an
+--    access, unlike every other food_ table. A thumbs-down also triggers an
 --    immediate one-idea replacement client-side; this table is what lets that
 --    preference actually carry forward into later batches instead of being
 --    forgotten the moment the card is replaced.
@@ -229,15 +211,7 @@ create table if not exists public.food_discover_feedback (
 
 alter table public.food_discover_feedback enable row level security;
 
-do $$ begin
-  create policy food_discover_feedback_select on public.food_discover_feedback
-    for select to anon, authenticated using (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_discover_feedback_insert on public.food_discover_feedback
-    for insert to anon, authenticated with check (true);
-exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
 -- 7. food_dietitian_conversations — Your Dietitian, for real this time: a
@@ -257,20 +231,8 @@ create table if not exists public.food_dietitian_conversations (
 
 alter table public.food_dietitian_conversations enable row level security;
 
-do $$ begin
-  create policy food_dietitian_conversations_select on public.food_dietitian_conversations
-    for select to anon, authenticated using (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_dietitian_conversations_insert on public.food_dietitian_conversations
-    for insert to anon, authenticated with check (true);
-exception when duplicate_object then null; end $$;
 
-do $$ begin
-  create policy food_dietitian_conversations_update on public.food_dietitian_conversations
-    for update to anon, authenticated using (true) with check (true);
-exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
 -- 8. food_log_items.source — distinguishes how a saved recipe got here.

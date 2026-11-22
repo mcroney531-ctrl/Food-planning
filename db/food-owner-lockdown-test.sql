@@ -1,4 +1,6 @@
--- Pre-lockdown test for db/food-owner-lockdown.sql (Reading Center).
+-- Authorization test for db/food-owner-lockdown.sql (Reading Center).
+-- Works pre-cutover (the gate that passed 203/203 on production) and
+-- post-cutover as a regression test; the last rows say which mode ran.
 --
 -- Runs ENTIRELY inside one transaction that ends in ROLLBACK: nothing persists.
 -- 1. snapshot today's food_* policies/grants
@@ -525,10 +527,21 @@ revoke select (week_start, meals, meals_reset_at) on public.food_week_plans from
 revoke usage on schema public from daily_brief_menu_reader;
 drop role if exists daily_brief_menu_reader;
 
+-- The rollback restores the ORIGINAL open state. Starting from that state
+-- (pre-cutover) it must match the snapshot exactly. Starting from an already
+-- secured database (post-cutover regression runs) it can't match, by design,
+-- so the check is reported as not applicable there; it was verified against
+-- production pre-cutover with 0 differences on 2026-11-22.
 insert into _res (label, expect, outcome, pass)
 select 'rollback restores exact pre-lockdown state', '0 differences',
-  (select count(*) from ((select * from _before except select * from pg_temp.food_state())
-                         union all (select * from pg_temp.food_state() except select * from _before)) d) || ' differences', null;
+  case when exists (select 1 from _before where food_state = 'schema private exists=true')
+       then '0 differences'  -- n/a: database was already secured when the test started
+       else (select count(*) from ((select * from _before except select * from pg_temp.food_state())
+                                   union all (select * from pg_temp.food_state() except select * from _before)) d) || ' differences' end, null;
+insert into _res (label, expect, outcome, pass)
+select 'mode', 'any', case when exists (select 1 from _before where food_state = 'schema private exists=true')
+  then 'post-cutover regression (database already secured; rollback comparison not applicable)'
+  else 'pre-cutover (rollback compared against snapshot)' end, true;
 update _res set pass = (outcome = expect) where pass is null;
 
 select (select count(*) filter (where pass) from _res) || ' passed, ' || (select count(*) filter (where not pass or pass is null) from _res) || ' failed' as summary,

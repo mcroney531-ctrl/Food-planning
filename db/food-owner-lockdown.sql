@@ -1,11 +1,17 @@
 -- Owner-only access for the food_* tables (Reading Center, fdbkdsracxomwyytfgob).
 --
--- PROPOSED — NOT APPLIED. Requires separate approval. Apply only after:
---   * the Daily Brief restricted reader (daily-brief repo, db/daily-brief-menu-reader.sql)
---     exists and its connection check passes, and
---   * db/food-owner-lockdown-test.sql passes in full.
--- Rollback: db/food-owner-lockdown-rollback.sql (restores today's exact state).
--- Idempotent: safe to re-run.
+-- APPLIED to production 2026-11-22 03:28 UTC as migration
+-- 20261122032835_food_owner_lockdown. The statements below are exactly what
+-- ran; only this header has changed since. Idempotent: re-running it on the
+-- secured database changes nothing (verified, see db/README.md).
+--
+-- Fresh project: run supabase-schema.sql first, create the owner's Auth user,
+-- and put that user's id in the allowlist insert below (it references
+-- auth.users, so a wrong or missing id fails loudly instead of locking
+-- everyone out silently).
+--
+-- Rollback: db/food-owner-lockdown-rollback.sql (restores the pre-lockdown
+-- open policies — emergency use only).
 --
 -- Model: one owner, kept in a private allowlist. Policies call
 -- private.is_food_owner(), which reads the allowlist as its owner (postgres)
